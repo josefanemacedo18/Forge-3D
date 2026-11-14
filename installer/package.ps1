@@ -91,11 +91,11 @@ try {
     Write-Host 'Instalando as bibliotecas do motor no Python embutido…'
     & $Python @pipArgs
     if ($LASTEXITCODE -ne 0) { throw 'Falha ao instalar as bibliotecas no Python embutido.' }
-    # Executáveis de console e testes das bibliotecas não são usados pelo motor.
+    # Executáveis de console não são usados pelo motor. As bibliotecas ficam
+    # inteiras: algumas importam módulos das próprias pastas "tests" em uso
+    # normal (o NumPy 2.2, por exemplo).
     $binDir = Join-Path $site 'bin'
     if (Test-Path $binDir) { Remove-Item $binDir -Recurse -Force }
-    Get-ChildItem $site -Recurse -Directory -Filter 'tests' | Where-Object { Test-Path $_.FullName } |
-        Remove-Item -Recurse -Force
 
     # Pré-compilação: o motor abre mais rápido (o .pyc vale mesmo se a data do
     # arquivo mudar na cópia).
