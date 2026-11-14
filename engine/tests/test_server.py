@@ -1,7 +1,6 @@
 import json
 import subprocess
 import sys
-import time
 from pathlib import Path
 
 import numpy as np
@@ -13,12 +12,33 @@ ENGINE = Path(__file__).resolve().parents[1]
 
 
 class Client:
+    """Cliente de teste: uma thread lê as respostas para uma fila, assim a
+    leitura tem prazo de verdade (readline bloquearia para sempre)."""
+
     def __init__(self, tmp_path):
+        import queue
+        import threading
+
+        self.log_dir = tmp_path / "logs"
         self.proc = subprocess.Popen(
-            [sys.executable, "-m", "forge3d", "servidor", "--logs", str(tmp_path / "logs")],
-            cwd=ENGINE, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            [sys.executable, "-m", "forge3d", "servidor", "--logs", str(self.log_dir)],
+            cwd=ENGINE, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             text=True, encoding="utf-8", bufsize=1)
+        self.lines = queue.Queue()
+        self.stderr = []
+        threading.Thread(target=self._pump, args=(self.proc.stdout, self.lines), daemon=True).start()
+        threading.Thread(target=self._drain, daemon=True).start()
         self.next_id = 1
+
+    @staticmethod
+    def _pump(stream, q):
+        for line in stream:
+            q.put(line)
+        q.put(None)
+
+    def _drain(self):
+        for line in self.proc.stderr:
+            self.stderr.append(line)
 
     def send(self, method, params=None, mid=True):
         msg = {"jsonrpc": "2.0", "method": method, "params": params or {}}
@@ -29,13 +49,16 @@ class Client:
         self.proc.stdin.flush()
         return msg.get("id")
 
-    def read(self, timeout=60):
-        start = time.time()
-        while time.time() - start < timeout:
-            line = self.proc.stdout.readline()
-            if line:
-                return json.loads(line)
-        raise TimeoutError
+    def read(self, timeout=120):
+        import queue
+
+        try:
+            line = self.lines.get(timeout=timeout)
+        except queue.Empty:
+            raise TimeoutError("o motor não respondeu; stderr:\n" + "".join(self.stderr[-30:])) from None
+        if line is None:
+            raise RuntimeError("o motor encerrou; stderr:\n" + "".join(self.stderr[-30:]))
+        return json.loads(line)
 
     def call(self, method, params=None, timeout=120):
         mid = self.send(method, params)
@@ -50,9 +73,12 @@ class Client:
 
     def close(self):
         try:
-            self.call("shutdown")
+            self.call("shutdown", timeout=30)
         finally:
-            self.proc.wait(timeout=10)
+            try:
+                self.proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
 
 
 def test_protocol_roundtrip(tmp_path):

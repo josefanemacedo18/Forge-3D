@@ -36,7 +36,7 @@ ia = [
     "omegaconf>=2.3",
     "huggingface_hub>=0.23",
 ]
-dev = ["pytest>=8.0"]
+dev = ["pytest>=8.0", "pytest-timeout>=2.3"]
 
 [project.scripts]
 forge3d = "forge3d.cli:main"
