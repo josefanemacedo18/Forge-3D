@@ -166,7 +166,7 @@ def evaluate_solids(spec: dict, overrides: dict[str, float] | None = None, build
                 if h1 - h0 < MIN_SEGMENT_MM:
                     problems.append(f"extrusão '{s['id']}' com espessura {h1 - h0:.2f} mm")
                 if any(abs(planes[al["plane"]] - original[al["plane"]]) > 1e-9 for al in s.get("alignments", [])):
-                    problems += _profile_problems(loops, f"extrusão '{s['id']}'")
+                    problems += _profile_problems(loops, f"extrusão '{s['id']}'", s["loops"])
                 if build_meshes and h1 > h0:
                     poly = _polygon_from_loops(loops)
                     if poly is None or poly.is_empty or poly.area <= 0:
@@ -208,7 +208,7 @@ def evaluate_solids(spec: dict, overrides: dict[str, float] | None = None, build
                 prof = _flex_loop(prof, locks)
                 if any(seg["start"][0] < -0.01 or seg["end"][0] < -0.01 for seg in prof):
                     problems.append(f"revolução '{s['id']}' com raio negativo após flexão")
-                problems += _profile_problems([prof], f"revolução '{s['id']}'")
+                problems += _profile_problems([prof], f"revolução '{s['id']}'", [s["profile"]])
             pts = discretize_loop(prof)
             span = r1 - r0
             new_lo, new_hi = float(pts[:, 1].min()), float(pts[:, 1].max())
@@ -327,12 +327,18 @@ def _flex_loop(loop: list[dict], locks: dict[int, tuple[int, float]]) -> list[di
     return out
 
 
-def _profile_problems(loops: list[list[dict]], label: str) -> list[str]:
-    """Perfil depois da flexão: sem trechos menores que 1 mm e sem cruzamentos
-    (o Revit recusa os dois casos ao regenerar a família)."""
+def _signed_area(ring: np.ndarray) -> float:
+    x, y = ring[:, 0], ring[:, 1]
+    return 0.5 * float(np.dot(x, np.roll(y, -1)) - np.dot(np.roll(x, -1), y))
+
+
+def _profile_problems(loops: list[list[dict]], label: str, original: list[list[dict]] | None = None) -> list[str]:
+    """Perfil depois da flexão: sem trechos menores que 1 mm, sem cruzamentos e
+    sem inverter o sentido (perfil espelhado = peça "pulou" para o outro lado).
+    O Revit recusa ou deforma a família nesses casos."""
     from shapely.geometry import Polygon
 
-    for lp in loops:
+    for k, lp in enumerate(loops):
         for seg in lp:
             if math.dist(seg["start"], seg["end"]) < MIN_SEGMENT_MM - 1e-6:
                 return [f"{label} com trecho de perfil menor que {MIN_SEGMENT_MM:g} mm após flexão"]
@@ -342,6 +348,10 @@ def _profile_problems(loops: list[list[dict]], label: str) -> list[str]:
         poly = Polygon(ring)
         if not poly.is_valid or poly.area <= 0:
             return [f"{label} com perfil cruzado após flexão"]
+        if original is not None and k < len(original):
+            a0 = _signed_area(discretize_loop(original[k]))
+            if a0 * _signed_area(ring) <= 0:
+                return [f"{label} com perfil invertido após flexão"]
     return []
 
 

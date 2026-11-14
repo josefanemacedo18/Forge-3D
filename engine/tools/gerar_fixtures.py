@@ -75,6 +75,10 @@ def main() -> int:
             obj = Path(tmp) / f"{name}.obj"
             save_obj(obj, parts)
             spec = convert_mesh_file(str(obj), ConvertOptions(level=level)).spec
+            # Arquivos estáveis: sem a pasta temporária nem os tempos de execução,
+            # para que só mudem quando o conteúdo da família mudar.
+            spec["report"]["source"]["path"] = obj.name
+            spec["report"]["timings"] = {}
             validate.validate(spec)
             if not spec["report"]["flex"]["ok"]:
                 print(f"AVISO {name}: flexão com falhas: {spec['report']['flex']['failures'][:2]}")
