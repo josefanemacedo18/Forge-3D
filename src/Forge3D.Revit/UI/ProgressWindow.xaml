@@ -1,4 +1,5 @@
 <Window x:Class="Forge3D.Revit.UI.ProgressWindow"
+        WindowStartupLocation="CenterOwner"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Forge 3D" Width="460" Height="150" ResizeMode="NoResize" WindowStyle="ToolWindow" Topmost="True">

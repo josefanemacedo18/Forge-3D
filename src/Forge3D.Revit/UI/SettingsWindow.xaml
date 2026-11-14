@@ -1,4 +1,5 @@
 <Window x:Class="Forge3D.Revit.UI.SettingsWindow"
+        WindowStartupLocation="CenterOwner"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Forge 3D — Configurações" Width="760" Height="680" MinWidth="620" MinHeight="520">

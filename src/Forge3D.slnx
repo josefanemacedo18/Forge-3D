@@ -2,4 +2,5 @@
   <Project Path="Forge3D.Core.Tests/Forge3D.Core.Tests.csproj" />
   <Project Path="Forge3D.Core/Forge3D.Core.csproj" />
   <Project Path="Forge3D.Revit/Forge3D.Revit.csproj" />
+  <Project Path="Forge3D.Revit.UiTests/Forge3D.Revit.UiTests.csproj" />
 </Solution>

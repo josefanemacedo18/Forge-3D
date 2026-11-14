@@ -19,6 +19,9 @@
     <ProjectReference Include="..\Forge3D.Core\Forge3D.Core.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="Forge3D.Revit.UiTests" />
+  </ItemGroup>
+  <ItemGroup>
     <None Include="Forge3D.addin" CopyToOutputDirectory="PreserveNewest" />
     <!-- Specs de teste usados pelo comando Diagnóstico. -->
     <None Include="..\Forge3D.Core.Tests\Fixtures\*.json" Link="diagnostico\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />

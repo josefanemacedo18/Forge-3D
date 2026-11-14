@@ -10,12 +10,13 @@
   <SolidColorBrush x:Key="Warn" Color="#E67700"/>
   <SolidColorBrush x:Key="Bad" Color="#C92A2A"/>
 
+  <!-- Só propriedades de dependência podem ir em Setter. WindowStartupLocation NÃO é uma
+       (fica como atributo em cada janela); colocá-la aqui quebra todas as janelas. -->
   <Style TargetType="Window" x:Key="Forge3DWindow">
     <Setter Property="FontFamily" Value="Segoe UI"/>
     <Setter Property="FontSize" Value="13"/>
     <Setter Property="Foreground" Value="{StaticResource Ink}"/>
     <Setter Property="Background" Value="White"/>
-    <Setter Property="WindowStartupLocation" Value="CenterOwner"/>
     <Setter Property="ShowInTaskbar" Value="False"/>
     <Setter Property="UseLayoutRounding" Value="True"/>
   </Style>

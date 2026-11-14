@@ -48,6 +48,8 @@ jobs:
         env:
           FORGE3D_TEST_ENGINE: ${{ github.workspace }}\engine
         run: dotnet test src/Forge3D.Core.Tests/Forge3D.Core.Tests.csproj -c Release
+      - name: Testes da interface (abre cada janela do plugin)
+        run: dotnet test src/Forge3D.Revit.UiTests/Forge3D.Revit.UiTests.csproj -c Release --logger "console;verbosity=normal"
       - name: Pacote de instalação
         shell: pwsh
         run: ./installer/package.ps1 -Saida dist -SemTestes
