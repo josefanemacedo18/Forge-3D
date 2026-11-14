@@ -114,3 +114,19 @@ def blob(radius=200, seed=1):
     disp = 0.15 * radius * np.sin(m.vertices[:, 0] / 40.0) * np.cos(m.vertices[:, 1] / 55.0)
     m.vertices = m.vertices + n * disp[:, None] + rng.normal(0, 0.5, m.vertices.shape)
     return m
+
+
+def rounded_table(width=1400, depth=800, height=750, top=30, radius=80, leg=50, inset=60):
+    """Mesa com tampo de cantos arredondados (extrusão com retas e arcos)."""
+    from shapely.geometry import box as sbox
+
+    poly = sbox(-width / 2 + radius, -depth / 2 + radius, width / 2 - radius, depth / 2 - radius).buffer(radius, quad_segs=8)
+    tampo = trimesh.creation.extrude_polygon(poly, top)
+    tampo.apply_translation([0, 0, height - top])
+    parts = [tampo]
+    for sx in (-1, 1):
+        for sy in (-1, 1):
+            x0 = sx * (width / 2 - inset) - (leg if sx > 0 else 0)
+            y0 = sy * (depth / 2 - inset) - (leg if sy > 0 else 0)
+            parts.append(box([x0, y0, 0], [x0 + leg, y0 + leg, height - top]))
+    return parts

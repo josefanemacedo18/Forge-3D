@@ -201,6 +201,32 @@ def _loop_circle(loop: list[Segment], tol: float = 1e-3) -> tuple[float, float, 
     return (float(c0[0]), float(c0[1]), float(r0))
 
 
+def _aligned_segments(loop: list[Segment], tol: float = 1e-3) -> list[tuple[int, int, float]]:
+    """Retas paralelas a um eixo do perfil: (índice, 0 = coordenada u fixa / 1 = v fixa, coordenada)."""
+    out = []
+    for i, s in enumerate(loop):
+        if s.kind != "line":
+            continue
+        if abs(s.end[0] - s.start[0]) <= tol:
+            out.append((i, 0, s.start[0]))
+        elif abs(s.end[1] - s.start[1]) <= tol:
+            out.append((i, 1, s.start[1]))
+    return out
+
+
+def _alignable(loop: list[Segment], tol: float = 0.05) -> bool:
+    """O contorno acompanha os planos se cada extremo (u mín/máx, v mín/máx)
+    tiver uma reta travável; arcos entre as retas (cantos arredondados)
+    acompanham as retas no Revit."""
+    pts = [p for s in loop for p in (s.start, s.end)]
+    us = [p[0] for p in pts]
+    vs = [p[1] for p in pts]
+    al = _aligned_segments(loop)
+    need = {(0, min(us)), (0, max(us)), (1, min(vs)), (1, max(vs))}
+    have = {(ax, c) for _, ax, c in al}
+    return all(any(ax == a and abs(c - val) <= tol for a, c in have) for ax, val in need)
+
+
 def _orthogonal_profile(loops: list[list[Segment]], tol: float = 1e-3) -> bool:
     for lp in loops:
         for s in lp:
@@ -269,16 +295,16 @@ class Planner:
             elif isinstance(p, Extrusion):
                 refs[p.axis].append(Ref(p.axis, p.h0, i, "lo", True))
                 refs[p.axis].append(Ref(p.axis, p.h1, i, "hi", True))
-                if _orthogonal_profile([p.loops[0]]):
+                if _alignable(p.loops[0]):
                     u, v = PERP[p.axis]
                     for lp in p.loops:
-                        if not _orthogonal_profile([lp]):
+                        if lp is not p.loops[0] and not _orthogonal_profile([lp]):
                             continue
-                        for s in lp:
-                            if abs(s.end[0] - s.start[0]) <= 1e-3:
-                                refs[u].append(Ref(u, s.start[0], i, "seg", True))
+                        for _, ax, coord in _aligned_segments(lp):
+                            if ax == 0:
+                                refs[u].append(Ref(u, coord, i, "seg", True))
                             else:
-                                refs[v].append(Ref(v, s.start[1], i, "seg", True))
+                                refs[v].append(Ref(v, coord, i, "seg", True))
             elif isinstance(p, Revolution):
                 u, v = PERP[p.axis]
                 refs[u].append(Ref(u, p.center[0], i, "center", False))
@@ -535,7 +561,7 @@ class Planner:
         """Furos circulares de extrusões retas viram cilindros vazios paramétricos."""
         out: list[Primitive] = []
         for p in prims:
-            if isinstance(p, Extrusion) and len(p.loops) > 1 and _orthogonal_profile([p.loops[0]]):
+            if isinstance(p, Extrusion) and len(p.loops) > 1 and _alignable(p.loops[0]):
                 keep = [p.loops[0]]
                 voids = []
                 for lp in p.loops[1:]:
@@ -673,27 +699,24 @@ class Planner:
                 use(h1)
                 aligned = []
                 loops = p.loops
-                if _orthogonal_profile([p.loops[0]]):
+                if _alignable(p.loops[0]):
                     u, v = PERP[p.axis]
                     loops = []
                     for li, lp in enumerate(p.loops):
-                        new_lp = []
-                        if not _orthogonal_profile([lp]):
+                        if li > 0 and not _orthogonal_profile([lp]):
                             loops.append(list(lp))
                             notes.append("furo irregular com posição fixa")
                             continue
-                        for si, sgm in enumerate(lp):
-                            if abs(sgm.end[0] - sgm.start[0]) <= 1e-3:
-                                lv = lvl(i, u, "seg", sgm.start[0])
-                            else:
-                                lv = lvl(i, v, "seg", sgm.start[1])
+                        for si, ax, coord in _aligned_segments(lp):
+                            lv = lvl(i, u if ax == 0 else v, "seg", coord)
                             use(lv)
                             aligned.append((li, si, lv))
-                            new_lp.append(sgm)
-                        loops.append(new_lp)
+                        loops.append(list(lp))
+                    if any(sg.kind == "arc" for sg in p.loops[0]):
+                        notes.append("cantos curvos acompanham as retas travadas (o raio pode variar ao flexionar)")
                     part_level = "C"
                 else:
-                    notes.append("perfil com curvas: forma fixa, espessura/altura paramétricas")
+                    notes.append("contorno curvo sem retas nos extremos: forma fixa, espessura/altura paramétricas")
                 s = dict(base, kind="extrusion", axis=p.axis, loops=loops, extent=[h0, h1], _aligned=aligned)
                 solids_out.append(s)
             elif isinstance(p, Revolution):

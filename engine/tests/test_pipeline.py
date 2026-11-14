@@ -116,3 +116,16 @@ def test_level_a_off_center_revolution_is_valid(tmp_path):
     revs = [s for s in spec["solids"] if s["kind"] == "revolution"]
     assert revs and abs(revs[0]["center"]["u"]["position"]) > 100
     assert spec["report"]["fidelity"]["p95"] < 1.5
+
+
+def test_rounded_tabletop_follows_width(tmp_path):
+    path = write(tmp_path, "mesa_arredondada", synth.rounded_table())
+    spec = convert_mesh_file(path, ConvertOptions(level="C")).spec
+    validate.validate(spec)
+    assert spec["family"]["achievedLevel"] == "C"
+    top = next(s for s in spec["solids"] if s["kind"] == "extrusion")
+    assert len(top["alignments"]) == 4  # as quatro retas do contorno travadas
+    p = {q["name"]: q for q in spec["parameters"]}
+    wide = evaluate.build_mesh(spec, {p["Largura"]["id"]: 2000.0})
+    assert wide.bounds[1][0] - wide.bounds[0][0] == pytest.approx(2000, abs=0.5)
+    assert spec["report"]["flex"]["ok"]
