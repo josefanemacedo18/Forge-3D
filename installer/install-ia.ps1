@@ -29,8 +29,13 @@ function Falha([string]$texto) {
     exit 1
 }
 function Executar([string]$exe, [string[]]$argumentos, [string]$descricao) {
+    # Avisos do pip/Python no stderr não podem interromper o script.
+    $anterior = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
     & $exe @argumentos
-    if ($LASTEXITCODE -ne 0) { Falha "$descricao (código $LASTEXITCODE)." }
+    $codigo = $LASTEXITCODE
+    $ErrorActionPreference = $anterior
+    if ($codigo -ne 0) { Falha "$descricao (código $codigo)." }
 }
 
 $Local = Join-Path $env:LOCALAPPDATA 'Forge3D'

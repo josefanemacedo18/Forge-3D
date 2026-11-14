@@ -129,9 +129,17 @@ Ok "Configuração em $ConfigPath"
 # --- 4. Conferência rápida ---------------------------------------------------------------
 if (-not $SemTeste) {
     Etapa 'Conferindo o motor'
-    $check = 'import forge3d, numpy, scipy, shapely, trimesh, manifold3d, skimage; print("motor ok", forge3d.__version__)'
-    $saida = & $py -c $check 2>&1
-    if ($LASTEXITCODE -ne 0) { Falha "O motor não abriu: $saida" }
+    # Sem aspas duplas no código Python: o Windows PowerShell 5.1 as remove ao
+    # passar argumentos para programas.
+    $check = 'import forge3d, numpy, scipy, shapely, trimesh, manifold3d, skimage; print(''motor ok'', forge3d.__version__)'
+    # Mensagens do Python no stderr não podem interromper o script (no 5.1, com
+    # "Stop", qualquer linha no stderr vira erro fatal).
+    $anterior = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    $saida = & $py -c $check 2>&1 | ForEach-Object { "$_" }
+    $codigo = $LASTEXITCODE
+    $ErrorActionPreference = $anterior
+    if ($codigo -ne 0) { Falha "O motor não abriu: $($saida -join ' | ')" }
     Ok ($saida | Select-Object -Last 1)
 }
 
