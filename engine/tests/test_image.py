@@ -42,7 +42,14 @@ def test_vase_becomes_revolution_with_real_scale(tmp_path):
     assert res.spec["envelope"]["height"] == pytest.approx(450, abs=1)
 
 
-def test_front_view_chair_is_not_revolution(tmp_path):
+def _without_ai(monkeypatch):
+    from forge3d.image import ai
+
+    monkeypatch.setattr(ai, "status", lambda: {"available": False, "reason": "simulado: IA não instalada"})
+
+
+def test_front_view_chair_is_not_revolution(tmp_path, monkeypatch):
+    _without_ai(monkeypatch)
     p = tmp_path / "cadeira.png"
     chair_image(p)
     res = convert_image(str(p), ImageOptions(reference_mm=900, depth_mm=480), work_dir=str(tmp_path))
@@ -66,7 +73,8 @@ def test_blank_image_is_rejected(tmp_path):
         convert_image(str(p), ImageOptions(reference_mm=100), work_dir=str(tmp_path))
 
 
-def test_ai_strategy_without_module_gives_clear_error(tmp_path):
+def test_ai_strategy_without_module_gives_clear_error(tmp_path, monkeypatch):
+    _without_ai(monkeypatch)
     p = tmp_path / "vaso.jpg"
     vase_image(p)
     with pytest.raises(EngineError, match="IA"):
