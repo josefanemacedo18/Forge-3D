@@ -130,3 +130,21 @@ def test_cancel(tmp_path):
         assert msg["result"]["busy"] is False
     finally:
         c.close()
+
+
+def test_engine_is_free_as_soon_as_the_answer_arrives(tmp_path):
+    """O cliente pode mandar o próximo pedido logo depois da resposta (fluxo
+    "analisar imagem" -> "gerar família") sem receber "motor ocupado"."""
+    obj = tmp_path / "caixa.obj"
+    save_obj(obj, [Part("caixa", np.asarray(synth.box([0, 0, 0], [300, 200, 100]).vertices),
+                        np.asarray(synth.box([0, 0, 0], [300, 200, 100]).faces))])
+    c = Client(tmp_path)
+    try:
+        for k in range(4):
+            msg, _ = c.call("convert_mesh", {"path": str(obj), "output": str(tmp_path / f"c{k}.json"),
+                                             "computeFidelity": False})
+            assert "result" in msg, msg
+            msg, _ = c.call("ping")
+            assert msg["result"]["busy"] is False
+    finally:
+        c.close()

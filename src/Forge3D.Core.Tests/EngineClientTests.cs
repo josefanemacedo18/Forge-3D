@@ -46,6 +46,16 @@ public class EngineClientTests
         var spec = SpecLoader.LoadValidated(result.SpecPath);
         Assert.Equal(400, spec.Envelope.Width, 3);
 
+        // Tamanho real informado: a escala é corrigida pelo motor (e o motor já
+        // está livre para o pedido seguinte assim que a resposta chega).
+        var scaled = await client.ConvertMeshAsync(new ConvertMeshRequest
+        {
+            Path = obj, Output = Path.Combine(tmp, "caixa_escala.json"), Level = "C", TargetSize = 1000, TargetAxis = "z",
+        }, null, CancellationToken.None);
+        var scaledSpec = SpecLoader.LoadValidated(scaled.SpecPath);
+        Assert.Equal(1000, scaledSpec.Envelope.Height, 3);
+        Assert.Equal(2000, scaledSpec.Envelope.Width, 3);
+
         var ex = await Assert.ThrowsAsync<EngineException>(() => client.ConvertMeshAsync(
             new ConvertMeshRequest { Path = Path.Combine(tmp, "nao_existe.obj"), Output = Path.Combine(tmp, "x.json") }, null, CancellationToken.None));
         Assert.Equal(EngineException.CodeEngine, ex.Code);

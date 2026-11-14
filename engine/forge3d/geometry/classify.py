@@ -427,9 +427,10 @@ def _revolution_profiles(mesh, axis: str, center: tuple[float, float], opts: Opt
             loops, _ = conv
             prof = [_clamp_r(s) for s in loops[0]]
             gh0, gh1 = g.bounds[1], g.bounds[3]
+            prof, flat_bottom = _snap_flat(prof, gh0, opts)
+            prof, flat_top = _snap_flat(prof, gh1, opts)
             rev = Revolution(axis=axis, center=center, profile=prof, h0=float(gh0), h1=float(gh1))
-            rev.flat_bottom = _has_flat(prof, gh0, opts)
-            rev.flat_top = _has_flat(prof, gh1, opts)
+            rev.flat_bottom, rev.flat_top = flat_bottom, flat_top
             # Volume por Pappus: 2*pi*área*raio do centroide.
             rev.volume = float(2 * math.pi * g.area * g.centroid.x)
             if len(loops) > 1:
@@ -450,6 +451,62 @@ def _snap_axis(poly, tol: float):
 def _clamp_r(s: Segment) -> Segment:
     c = lambda p: (max(0.0, p[0]), p[1]) if p is not None else None  # noqa: E731
     return Segment(s.kind, c(s.start), c(s.end), c(s.mid), s.center, s.radius)
+
+
+def _snap_flat(profile: list[Segment], h: float, opts: Options) -> tuple[list[Segment], bool]:
+    """Tampa plana na altura extrema ``h`` do perfil (r, h).
+
+    O Revit só trava em plano uma face plana. Malhas exportadas costumam ter o
+    aro ou o fundo levemente inclinado (décimos de mm): uma reta quase
+    horizontal na altura extrema é nivelada (desvio dentro da tolerância de
+    ajuste) para que a altura possa ser paramétrica.
+    """
+    if _has_flat(profile, h, opts):
+        return profile, True
+    from shapely.geometry import Polygon
+
+    from ..spec.evaluate import discretize_loop
+    from .polygons import MIN_SEGMENT
+
+    n = len(profile)
+    cands = []
+    for i, sg in enumerate(profile):
+        if sg.kind != "line" or sg.length() <= 1.0:
+            continue
+        lim = min(opts.fit_tol, max(opts.tol, 0.03 * sg.length()))
+        if abs(sg.start[1] - h) <= lim and abs(sg.end[1] - h) <= lim:
+            cands.append((sg.length(), i))
+    for _, i in sorted(cands, reverse=True):
+        sg = profile[i]
+        a, b = (sg.start[0], h), (sg.end[0], h)
+        new = list(profile)
+        new[i] = Segment("line", a, b)
+        prev, nxt = (i - 1) % n, (i + 1) % n
+        new[prev] = _moved(new[prev], end=a)
+        new[nxt] = _moved(new[nxt], start=b)
+        if any(x is None or x.length() < MIN_SEGMENT for x in new):
+            continue
+        try:
+            poly = Polygon(discretize_loop([x.to_spec() for x in new], 2))
+        except Exception:
+            continue
+        if poly.is_valid and poly.area > 0:
+            return new, True
+    return profile, False
+
+
+def _moved(sg: Segment, start=None, end=None) -> Segment | None:
+    """Segmento com extremo deslocado; arcos são refeitos pelos três pontos."""
+    st = start if start is not None else sg.start
+    en = end if end is not None else sg.end
+    if sg.kind == "line":
+        return Segment("line", st, en)
+    from ..spec.evaluate import circle_from_3pts
+
+    c, r = circle_from_3pts(np.asarray(st, float), np.asarray(sg.mid, float), np.asarray(en, float))
+    if c is None:
+        return Segment("line", st, en)
+    return Segment("arc", st, en, sg.mid, (float(c[0]), float(c[1])), float(r))
 
 
 def _has_flat(profile, h: float, opts: Options) -> bool:

@@ -20,6 +20,7 @@ respondidos imediatamente mesmo durante uma conversão.
 from __future__ import annotations
 
 import json
+import math
 import logging
 import os
 import sys
@@ -119,6 +120,19 @@ def _warm_up() -> None:
         log.warning("pré-carga do rtree falhou: %s", exc)
 
 
+def _optional_mm(value: Any) -> float | None:
+    """Medida opcional em mm: ausente, nula ou zero = não informada."""
+    if value in (None, "", 0):
+        return None
+    try:
+        v = float(value)
+    except (TypeError, ValueError) as exc:
+        raise EngineError(f"Medida inválida: {value!r}") from exc
+    if not math.isfinite(v) or v <= 0:
+        raise EngineError(f"Medida inválida: {value!r}")
+    return v
+
+
 class Server:
     def __init__(self, out_stream, log_dir: Path | None = None):
         self._out = out_stream
@@ -126,6 +140,9 @@ class Server:
         self._lock = threading.Lock()
         self._job: threading.Thread | None = None
         self._job_id: Any = None
+        # Ocupado do início do trabalho até ANTES de a resposta ser enviada:
+        # quem recebe a resposta já pode mandar o próximo pedido.
+        self._busy = False
         self._cancel = threading.Event()
         self._running = True
 
@@ -168,7 +185,7 @@ class Server:
             return
         if method == "ping":
             self.reply(mid, {"version": __version__, "protocol": PROTOCOL_VERSION, "python": sys.version.split()[0],
-                             "busy": self._job is not None and self._job.is_alive()})
+                             "busy": self._busy})
             return
         if method == "hardware":
             self._run_inline(mid, self._hardware, params)
@@ -186,10 +203,11 @@ class Server:
         if handler is None:
             self.error(mid, ERR_METHOD, f"Método desconhecido: {method}")
             return
-        if self._job is not None and self._job.is_alive():
+        if self._busy:
             self.error(mid, ERR_BUSY, "O motor já está processando outra conversão.")
             return
         self._cancel.clear()
+        self._busy = True
         self._job_id = mid
         self._job = threading.Thread(target=self._run_job, args=(mid, handler, params), daemon=True)
         self._job.start()
@@ -214,28 +232,27 @@ class Server:
                 faulthandler.dump_traceback_later(600, repeat=False, file=watchdog)
         except Exception:
             watchdog = None
+        response: tuple
         try:
             log.info("início %s %s", fn.__name__, {k: v for k, v in params.items() if k != "spec"})
-            result = fn(mid, params)
-            self.reply(mid, result)
+            response = ("ok", fn(mid, params))
             log.info("fim %s", fn.__name__)
         except CancelledError as exc:
-            self.error(mid, ERR_CANCELLED, str(exc))
+            response = ("erro", ERR_CANCELLED, str(exc), None)
         except EngineError as exc:
             log.warning("erro do motor: %s", exc)
             data = {"errors": exc.errors} if hasattr(exc, "errors") else None
-            self.error(mid, ERR_ENGINE, str(exc), data)
-        except Exception as exc:
+            response = ("erro", ERR_ENGINE, str(exc), data)
+        except BaseException as exc:  # inclui SystemExit: o motor nunca fica preso em "ocupado"
             log.exception("erro interno")
             from .spec.validate import SpecValidationError
 
             if isinstance(exc, SpecValidationError):
-                self.error(mid, ERR_ENGINE, "O motor gerou uma família inválida; nada foi criado no Revit.",
-                           {"errors": exc.errors})
+                response = ("erro", ERR_ENGINE, "O motor gerou uma família inválida; nada foi criado no Revit.",
+                            {"errors": exc.errors})
             else:
-                self.error(mid, ERR_INTERNAL, f"Erro interno do motor: {exc}", {"trace": traceback.format_exc()})
+                response = ("erro", ERR_INTERNAL, f"Erro interno do motor: {exc}", {"trace": traceback.format_exc()})
         finally:
-            self._job_id = None
             if watchdog is not None:
                 try:
                     import faulthandler
@@ -244,6 +261,17 @@ class Server:
                     watchdog.close()
                 except Exception:
                     pass
+        # Libera o motor e só então responde.
+        self._job_id = None
+        self._busy = False
+        try:
+            if response[0] == "ok":
+                self.reply(mid, response[1])
+            else:
+                self.error(mid, response[1], response[2], response[3])
+        except Exception as exc:  # resultado não serializável: nunca deixa o cliente esperando
+            log.exception("falha ao enviar a resposta")
+            self.error(mid, ERR_INTERNAL, f"Erro interno do motor ao enviar a resposta: {exc}")
 
     # -- métodos ----------------------------------------------------------------------
     def _hardware(self, params: dict) -> dict:
@@ -297,7 +325,8 @@ class Server:
             fit_tol=float(params.get("fitTol", 1.0)), allow_approx=bool(params.get("allowApprox", True)),
             sheet_thickness=float(params.get("sheetThickness", 3.0)),
             max_freeform_faces=int(params.get("maxFreeformFaces", 15000)),
-            compute_fidelity=bool(params.get("computeFidelity", True)))
+            compute_fidelity=bool(params.get("computeFidelity", True)),
+            target_size=_optional_mm(params.get("targetSize")), target_axis=str(params.get("targetAxis") or "z"))
         res = convert_mesh_file(path, opts, progress=lambda f, m: self.progress(mid, f, m), cancel=self._cancel.is_set)
         spec_path = self._write_spec(res.spec, params.get("output"))
         return {"specPath": spec_path, "previewPath": self._write_preview(res.spec, spec_path), "summary": res.summary}

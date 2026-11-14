@@ -44,3 +44,21 @@ public class FormulaTests
     [InlineData(" Largura", false)]
     public void Validates_parameter_names(string name, bool ok) => Assert.Equal(ok, Formula.IsValidName(name));
 }
+
+public class MeshTopologyTests
+{
+    [Fact]
+    public void Separate_pieces_become_separate_components()
+    {
+        // Dois tetraedros independentes (vértices 0-3 e 4-7).
+        var faces = new List<int[]>
+        {
+            new[] { 0, 1, 2 }, new[] { 0, 3, 1 }, new[] { 1, 3, 2 }, new[] { 2, 3, 0 },
+            new[] { 4, 5, 6 }, new[] { 4, 7, 5 }, new[] { 5, 7, 6 }, new[] { 6, 7, 4 },
+        };
+        var comps = Forge3D.Core.Mesh.MeshTopology.Components(faces, 8);
+        Assert.Equal(2, comps.Count);
+        Assert.All(comps, c => Assert.Equal(4, c.Count));
+        Assert.Single(Forge3D.Core.Mesh.MeshTopology.Components(faces.Take(4).ToList(), 8));
+    }
+}

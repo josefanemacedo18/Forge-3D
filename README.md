@@ -51,7 +51,7 @@ pwsh installer/package.ps1
 
 ## Estado
 
-- **Motor:** 44 testes (inclui a reconstrução real por IA quando `FORGE3D_TEST_AI` está definido).
-- **Núcleo C#:** 38 testes, incluindo integração com o motor real.
+- **Motor:** 53 testes (inclui a reconstrução real por IA quando `FORGE3D_TEST_AI` está definido). Validado também com 24 modelos reais baixados (cadeiras, sofás, luminárias, vasos, estantes…): todos geram famílias válidas.
+- **Núcleo C#:** 61 testes, incluindo integração com o motor real e os 14 FamilySpecs de referência (os mesmos que o **Diagnóstico** monta no Revit; gerados por `engine/tools/gerar_fixtures.py`).
 - **Plugin:** compila contra a API do Revit 2027 sem erros nem avisos. A validação dentro do Revit é feita pelo comando **Diagnóstico**.
-- **Limites desta versão:** os raios dos perfis de revolução e as formas livres ficam fixos (a altura das revoluções é paramétrica). Detalhes em [docs/ARQUITETURA.md](docs/ARQUITETURA.md).
+- **Limites desta versão:** formas livres ficam fixas; contornos sem retas nos extremos (ovais) e revoluções fora do centro mantêm a forma (altura e espessura paramétricas). Detalhes em [docs/ARQUITETURA.md](docs/ARQUITETURA.md).

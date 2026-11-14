@@ -79,7 +79,21 @@ public sealed class ParameterSpec
     [JsonPropertyName("formula")] public string? Formula { get; set; }
     [JsonPropertyName("role")] public string Role { get; set; } = "";
     [JsonPropertyName("description")] public string? Description { get; set; }
+    /// <summary>Faixa segura calculada pelo motor (mm): fora dela o Revit recusaria a geometria.</summary>
     [JsonPropertyName("min")] public double? Min { get; set; }
+    [JsonPropertyName("max")] public double? Max { get; set; }
+
+    /// <summary>Texto da faixa segura, ex.: "12 – 40", "≥ 12" ou "" (sem faixa calculada).</summary>
+    public string SafeRangeText => (Min, Max) switch
+    {
+        ({ } lo, { } hi) => $"{lo:0.#} – {hi:0.#}",
+        ({ } lo, null) => $"≥ {lo:0.#}",
+        (null, { } hi) => $"≤ {hi:0.#}",
+        _ => "",
+    };
+
+    /// <summary>O valor (mm) está dentro da faixa segura?</summary>
+    public bool IsWithinSafeRange(double value) => (Min is not { } lo || value >= lo - 1e-6) && (Max is not { } hi || value <= hi + 1e-6);
 
     public bool HasFormula => !string.IsNullOrWhiteSpace(Formula);
 

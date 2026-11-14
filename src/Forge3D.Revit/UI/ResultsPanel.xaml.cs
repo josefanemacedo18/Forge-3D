@@ -9,7 +9,7 @@ namespace Forge3D.Revit.UI;
 
 public sealed record PartRow(string Name, string Kind, string Level);
 
-public sealed record ParamRow(string Name, string Value, string Min);
+public sealed record ParamRow(string Name, string Value, string Range);
 
 public partial class ResultsPanel : UserControl
 {
@@ -54,7 +54,7 @@ public partial class ResultsPanel : UserControl
 
         ParamsList.ItemsSource = spec.Parameters
             .Where(p => p.IsUserFacing || p.Kind == ParameterKinds.Material)
-            .Select(p => new ParamRow(p.Name, FormatValue(spec, p), p.Min is { } m ? $"{m:0.#}" : ""))
+            .Select(p => new ParamRow(p.Name, FormatValue(spec, p), p.SafeRangeText))
             .ToList();
 
         var blockers = spec.Report.LevelCBlockers;

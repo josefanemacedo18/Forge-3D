@@ -49,7 +49,7 @@
             <GridView>
               <GridViewColumn Header="Parâmetro" Width="170" DisplayMemberBinding="{Binding Name}"/>
               <GridViewColumn Header="Valor" Width="80" DisplayMemberBinding="{Binding Value}"/>
-              <GridViewColumn Header="Mínimo" Width="70" DisplayMemberBinding="{Binding Min}"/>
+              <GridViewColumn Header="Faixa segura (mm)" Width="120" DisplayMemberBinding="{Binding Range}"/>
             </GridView>
           </ListView.View>
         </ListView>

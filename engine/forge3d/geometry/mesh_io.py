@@ -40,6 +40,7 @@ class LoadedModel:
     declared_units: str | None = None  # "mm", "cm", "m", "in", "ft" quando o arquivo informa
     declared_up: str | None = None  # "Z" ou "Y"
     warnings: list[str] = field(default_factory=list)
+    units_by_convention: bool = False  # unidade vinda da regra do formato, não do arquivo
 
 
 def _read_forge3d_header(path: Path) -> dict[str, str]:
@@ -138,12 +139,13 @@ def load_model(path: str | os.PathLike) -> LoadedModel:
     if declared_up is None and ext in Y_UP_FORMATS:
         declared_up = "Y"
     units = header.get("units")
+    by_convention = False
     if units is None and ext in (".glb", ".gltf"):
-        units = "m"  # glTF é definido em metros
+        units, by_convention = "m", True  # glTF é definido em metros
     if units is None and ext == ".3mf":
-        units = "mm"
+        units, by_convention = "mm", True
     return LoadedModel(parts=parts, path=str(p), format=ext.lstrip("."), declared_units=units,
-                       declared_up=declared_up, warnings=warnings)
+                       declared_up=declared_up, warnings=warnings, units_by_convention=by_convention)
 
 
 def save_obj(path: str | os.PathLike, parts: list[Part], header: str = "# forge3d units=mm up=Z") -> None:

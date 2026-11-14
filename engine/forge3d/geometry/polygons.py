@@ -202,6 +202,8 @@ def ring_to_segments(coords, tol: float, min_len: float = MIN_SEGMENT) -> RingIn
         c, r, res = fit_circle(pts)
         chords = np.linalg.norm(np.roll(pts, -1, axis=0) - pts, axis=1)
         if r > 0 and res <= max(tol, min(0.003 * r, 4 * tol)) and chords.max() <= 4.0 * chords.min():
+            if math.pi * r < min_len:
+                return None  # círculo pequeno demais para o Revit
             p0 = c + np.array([r, 0.0])
             p1 = c + np.array([-r, 0.0])
             ccw = bool(turns[0] > 0)
@@ -282,8 +284,8 @@ def ring_to_segments(coords, tol: float, min_len: float = MIN_SEGMENT) -> RingIn
         i = j_ok
     segments = _merge_collinear(segments, max(tol * 0.5, 1e-4))
     segments = _enforce_min_length(segments, min_len)
-    if len(segments) < 2:
-        return None
+    if len(segments) < 2 or any(sg.length() < min_len - 1e-9 for sg in segments):
+        return None  # anel pequeno demais para o Revit (a peça vira forma livre)
     return RingInfo(segments)
 
 

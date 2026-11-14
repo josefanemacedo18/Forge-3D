@@ -247,8 +247,8 @@ def semantic_errors(spec: dict) -> list[str]:
                 for ref in (a, b):
                     if axis_of.get(ref) != ax:
                         errors.append(f"Caixa '{sid}': face {ax} referencia plano '{ref}' inexistente ou de outro eixo.")
-                if a in axis_of and b in axis_of and not (original[a] < original[b] - 0.05):
-                    errors.append(f"Caixa '{sid}': planos {ax} fora de ordem ou coincidentes ('{a}', '{b}').")
+                if a in axis_of and b in axis_of:
+                    errors += _span_errors(original[a], original[b], f"Caixa '{sid}'", f"planos {ax} ('{a}', '{b}')")
         elif kind in ("cylinder", "revolution"):
             u_ax, v_ax = PERP_AXES[s["axis"]]
             for key, ax in (("u", u_ax), ("v", v_ax)):
@@ -271,10 +271,12 @@ def semantic_errors(spec: dict) -> list[str]:
                 for ref in ext:
                     if axis_of.get(ref) != s["axis"]:
                         errors.append(f"{kind} '{sid}': extensão usa plano '{ref}' inexistente ou de outro eixo.")
-                if all(r in axis_of for r in ext) and not original[ext[0]] < original[ext[1]] - 0.05:
-                    errors.append(f"{kind} '{sid}': planos de extensão fora de ordem.")
+                if all(r in axis_of for r in ext):
+                    errors += _span_errors(original[ext[0]], original[ext[1]], f"{kind} '{sid}'", "planos de extensão")
             if kind == "cylinder":
                 dia = s["diameter"]
+                if dia["value"] < MIN_SEGMENT_MM:
+                    errors.append(f"Cilindro '{sid}': diâmetro menor que {MIN_SEGMENT_MM:g} mm; o Revit rejeita.")
                 if dia["driver"] is not None:
                     d = pids.get(dia["driver"])
                     if d is None or d["kind"] != "length":
@@ -308,8 +310,9 @@ def semantic_errors(spec: dict) -> list[str]:
                 for ref in s["extent"]:
                     if axis_of.get(ref) != s["axis"]:
                         errors.append(f"Extrusão '{sid}': extensão usa plano '{ref}' inválido.")
-                if all(r in axis_of for r in s["extent"]) and not original[s["extent"][0]] < original[s["extent"][1]] - 0.05:
-                    errors.append(f"Extrusão '{sid}': planos de extensão fora de ordem.")
+                if all(r in axis_of for r in s["extent"]):
+                    errors += _span_errors(original[s["extent"][0]], original[s["extent"][1]], f"Extrusão '{sid}'",
+                                           "planos de extensão")
                 u_ax, v_ax = PERP_AXES[s["axis"]]
                 for al in s.get("alignments", []):
                     try:
@@ -330,6 +333,8 @@ def semantic_errors(spec: dict) -> list[str]:
                         errors.append(f"Extrusão '{sid}': segmento alinhado não está sobre o plano '{al['plane']}'.")
             elif "frame" not in s:
                 errors.append(f"Extrusão '{sid}' precisa de 'extent' ou de 'frame' + 'depth'.")
+            elif s.get("depth", 0) < MIN_SEGMENT_MM:
+                errors.append(f"Extrusão '{sid}': profundidade menor que {MIN_SEGMENT_MM:g} mm; o Revit rejeita.")
         elif kind == "mesh":
             nv = len(s["vertices"])
             if nv < 4 or len(s["faces"]) < 4:
@@ -353,6 +358,15 @@ def semantic_errors(spec: dict) -> list[str]:
     if not spec.get("types"):
         errors.append("O spec precisa de ao menos um tipo de família.")
     return errors
+
+
+def _span_errors(a: float, b: float, label: str, what: str) -> list[str]:
+    """Dois planos que delimitam um sólido: em ordem e a pelo menos 1 mm."""
+    if not a < b:
+        return [f"{label}: {what} fora de ordem ou coincidentes."]
+    if b - a < MIN_SEGMENT_MM:
+        return [f"{label}: {what} a menos de {MIN_SEGMENT_MM:g} mm (peça fina demais); o Revit rejeita."]
+    return []
 
 
 def _loop_errors(loop: list[dict], label: str) -> list[str]:

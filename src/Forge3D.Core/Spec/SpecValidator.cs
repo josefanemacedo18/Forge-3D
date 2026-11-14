@@ -118,8 +118,7 @@ public static class SpecValidator
                         if (refs is not { Length: 2 }) { errors.Add($"Caixa '{s.Id}' sem as duas faces {ax}."); continue; }
                         if (refs.Any(r => !axisOf.TryGetValue(r, out var a) || a != ax))
                             errors.Add($"Caixa '{s.Id}': face {ax} referencia plano inexistente ou de outro eixo.");
-                        else if (!(original[refs[0]] < original[refs[1]] - 0.05))
-                            errors.Add($"Caixa '{s.Id}': planos {ax} fora de ordem ou coincidentes.");
+                        else SpanErrors(original[refs[0]], original[refs[1]], $"Caixa '{s.Id}'", $"planos {ax}", errors);
                     }
                     break;
                 case SolidKinds.Cylinder:
@@ -178,13 +177,13 @@ public static class SpecValidator
         {
             if (s.Extent.Length != 2 || s.Extent.Any(r => !axisOf.TryGetValue(r, out var a) || a != s.Axis))
                 errors.Add($"{s.Kind} '{s.Id}': extensão com plano inválido.");
-            else if (!(original[s.Extent[0]] < original[s.Extent[1]] - 0.05))
-                errors.Add($"{s.Kind} '{s.Id}': planos de extensão fora de ordem.");
+            else SpanErrors(original[s.Extent[0]], original[s.Extent[1]], $"{s.Kind} '{s.Id}'", "planos de extensão", errors);
         }
         if (s.Kind == SolidKinds.Cylinder)
         {
             if (s.Extent is null) errors.Add($"Cilindro '{s.Id}' sem extensão.");
             if (s.Diameter is null || s.Diameter.Value <= 0) errors.Add($"Cilindro '{s.Id}' sem diâmetro válido.");
+            else if (s.Diameter.Value < MinSegment) errors.Add($"Cilindro '{s.Id}': diâmetro menor que {MinSegment} mm; o Revit rejeita.");
             else if (s.Diameter.Driver is not null)
             {
                 if (!byId.TryGetValue(s.Diameter.Driver, out var d) || d.Kind != ParameterKinds.Length)
@@ -224,6 +223,13 @@ public static class SpecValidator
         }
     }
 
+    /// <summary>Dois planos que delimitam um sólido: em ordem e a pelo menos 1 mm.</summary>
+    private static void SpanErrors(double a, double b, string label, string what, List<string> errors)
+    {
+        if (!(a < b)) errors.Add($"{label}: {what} fora de ordem ou coincidentes.");
+        else if (b - a < MinSegment) errors.Add($"{label}: {what} a menos de {MinSegment} mm (peça fina demais); o Revit rejeita.");
+    }
+
     private static void ValidateExtrusion(SolidSpec s, Dictionary<string, string> axisOf, Dictionary<string, double> original, List<string> errors)
     {
         if (s.Loops is null || s.Loops.Count == 0) { errors.Add($"Extrusão '{s.Id}' sem perfil."); return; }
@@ -231,6 +237,7 @@ public static class SpecValidator
         if (s.Frame is not null)
         {
             if (s.Depth is not > 0) errors.Add($"Extrusão '{s.Id}' com profundidade inválida.");
+            else if (s.Depth < MinSegment) errors.Add($"Extrusão '{s.Id}': profundidade menor que {MinSegment} mm; o Revit rejeita.");
             var x = s.Frame.XDir; var y = s.Frame.YDir;
             double dot = x[0] * y[0] + x[1] * y[1] + x[2] * y[2];
             if (Math.Abs(dot) > 1e-4) errors.Add($"Extrusão '{s.Id}': eixos do plano não são perpendiculares.");
@@ -243,8 +250,7 @@ public static class SpecValidator
         }
         if (s.Extent.Any(r => !axisOf.TryGetValue(r, out var a) || a != s.Axis))
             errors.Add($"Extrusão '{s.Id}': extensão com plano inválido.");
-        else if (!(original[s.Extent[0]] < original[s.Extent[1]] - 0.05))
-            errors.Add($"Extrusão '{s.Id}': planos de extensão fora de ordem.");
+        else SpanErrors(original[s.Extent[0]], original[s.Extent[1]], $"Extrusão '{s.Id}'", "planos de extensão", errors);
         var (u, v) = SpecMath.Perpendicular(s.Axis);
         foreach (var al in s.Alignments ?? new())
         {

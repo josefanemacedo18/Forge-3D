@@ -138,6 +138,9 @@ class PlanOptions:
     family_name: str = "Forge3D Familia"
     category: str = "GenericModel"
     source_name: str = ""
+    # Restrições soltas por sólido (id "sN") depois do teste de flexão:
+    # "contorno" (retas travadas de extrusões), "raios" e "altura" (revoluções).
+    relax: dict[str, set[str]] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -173,18 +176,41 @@ def _framed_from_axis_profile(axis: str, loops: list[list[Segment]], h0: float, 
     return fe
 
 
+MIN_FIXED = 1.2  # mm — menor dimensão aceita pelo Revit com folga (curvas < 0,78 mm são rejeitadas)
+
+
 def _as_fixed(p: Primitive) -> Primitive:
-    """Converte uma primitiva em geometria fixa equivalente."""
+    """Converte uma primitiva em geometria fixa equivalente.
+
+    Dimensões abaixo de 1,2 mm são engrossadas para 1,2 mm (o Revit rejeita
+    curvas menores que ~0,8 mm); a extrusão segue a menor dimensão.
+    """
     if isinstance(p, Box):
-        lo, hi = np.asarray(p.lo), np.asarray(p.hi)
-        fe = _framed_from_axis_profile("z", [_rect_loop(lo[0], lo[1], hi[0], hi[1])], lo[2], hi[2])
+        lo, hi = np.asarray(p.lo, float), np.asarray(p.hi, float)
+        for k in range(3):
+            if hi[k] - lo[k] < MIN_FIXED:
+                c = (lo[k] + hi[k]) / 2
+                lo[k], hi[k] = c - MIN_FIXED / 2, c + MIN_FIXED / 2
+        axis = "xyz"[int(np.argmin(hi - lo))]
+        u, v = PERP[axis]
+        iu, iv, iw = AXIS_INDEX[u], AXIS_INDEX[v], AXIS_INDEX[axis]
+        fe = _framed_from_axis_profile(axis, [_rect_loop(lo[iu], lo[iv], hi[iu], hi[iv])], lo[iw], hi[iw])
     elif isinstance(p, Cylinder):
-        fe = _framed_from_axis_profile(p.axis, [_circle_loop(p.center[0], p.center[1], p.diameter / 2)], p.h0, p.h1)
+        r = max(p.diameter, MIN_FIXED) / 2
+        h0, h1 = p.h0, p.h1
+        if h1 - h0 < MIN_FIXED:
+            c = (h0 + h1) / 2
+            h0, h1 = c - MIN_FIXED / 2, c + MIN_FIXED / 2
+        fe = _framed_from_axis_profile(p.axis, [_circle_loop(p.center[0], p.center[1], r)], h0, h1)
     elif isinstance(p, Extrusion):
-        fe = _framed_from_axis_profile(p.axis, p.loops, p.h0, p.h1)
+        h0, h1 = p.h0, p.h1
+        if h1 - h0 < MIN_FIXED:
+            c = (h0 + h1) / 2
+            h0, h1 = c - MIN_FIXED / 2, c + MIN_FIXED / 2
+        fe = _framed_from_axis_profile(p.axis, p.loops, h0, h1)
     else:
         return p
-    for attr in ("name", "source", "color", "material_name", "volume", "deviation", "detail"):
+    for attr in ("name", "source", "color", "material_name", "volume", "deviation", "detail", "is_void"):
         setattr(fe, attr, getattr(p, attr))
     fe.notes = list(p.notes) + ["peça muito fina para restrições: geometria fixa"]
     return fe
@@ -299,7 +325,7 @@ def _revolution_keys(p: Revolution) -> list[tuple[float, float, str]]:
             continue
         rs = [pt[0] for sg in prof if sg.kind == "line" for pt in (sg.start, sg.end)
               if abs(sg.start[1] - h) <= 0.05 and abs(sg.end[1] - h) <= 0.05]
-        if rs and max(rs) > MERGE_TOL:
+        if rs and max(rs) > 4 * RADIAL_STEP:  # tampas minúsculas (ponta de cone) não viram parâmetro
             keys.append((max(rs), h, kind))
     # Remove repetidos (mesmo ponto).
     out: list[tuple[float, float, str]] = []
@@ -392,6 +418,60 @@ MIN_RADIAL_LINE = 1.0
 MIN_SEGMENT_MM = 1.0
 
 
+def _swap(sg: Segment) -> Segment:
+    """Troca as coordenadas (r, h) -> (h, r) de um segmento."""
+    sw = (lambda q: (q[1], q[0]) if q is not None else None)  # noqa: E731
+    return Segment(sg.kind, sw(sg.start), sw(sg.end), sw(sg.mid), sw(sg.center), sg.radius)
+
+
+def _ensure_caps(p: Revolution) -> None:
+    """Topo/base em ponta (cone, quina do aro): cria uma tampa plana de 2 mm no
+    vértice extremo para que a altura possa ser travada em plano no Revit.
+
+    Só quando as duas curvas vizinhas são retas — o Revit estica retas sem
+    deformar o resto do perfil. Cúpulas (arcos) mantêm a altura fixa.
+    """
+    from shapely.geometry import Polygon
+
+    from ..spec.evaluate import discretize_loop
+
+    for kind in ("topo", "base"):
+        if p.flat_top if kind == "topo" else p.flat_bottom:
+            continue
+        h = p.h1 if kind == "topo" else p.h0
+        prof = p.profile
+        n = len(prof)
+        at = [i for i, sg in enumerate(prof) if abs(sg.end[1] - h) <= 0.05]
+        if len(at) != 1:
+            continue
+        a, b = prof[at[0]], prof[(at[0] + 1) % n]
+        if a.kind != "line" or b.kind != "line":
+            continue
+        r_k = a.end[0]
+        max_r = max(q[0] for sg in prof for q in (sg.start, sg.end))
+        if r_k <= 0.05:
+            side = "base"  # no eixo: tampa de r = 0 a 2 mm
+        elif r_k >= max_r - 0.05:
+            side = "topo"  # no raio máximo: tampa para dentro (não aumenta o diâmetro)
+        else:
+            side = "max"  # centrada no vértice
+        res = _insert_radial([_swap(sg) for sg in prof], (h, r_k, side), h, 0.0, max_r)
+        if res is None:
+            continue
+        new_prof = [_swap(sg) for sg in res[0]]
+        if any(q[0] < -1e-9 for sg in new_prof for q in (sg.start, sg.end)):
+            continue
+        ring = discretize_loop([sg.to_spec() for sg in new_prof])
+        if len(ring) < 3 or not Polygon(ring).is_valid:
+            continue
+        p.profile = new_prof
+        if kind == "topo":
+            p.flat_top = True
+        else:
+            p.flat_bottom = True
+        p.notes.append(f"{'topo' if kind == 'topo' else 'base'} em ponta: tampa plana de {RADIAL_STEP:g} mm criada para travar a altura")
+
+
 def _snap_r(sg: Segment, r_old: float, r_new: float) -> Segment:
     def sp(pt):
         if pt is None:
@@ -457,7 +537,7 @@ class Planner:
             elif isinstance(p, Extrusion):
                 refs[p.axis].append(Ref(p.axis, p.h0, i, "lo", True))
                 refs[p.axis].append(Ref(p.axis, p.h1, i, "hi", True))
-                if _alignable(p.loops[0]):
+                if _alignable(p.loops[0]) and not self._relaxed(i, "contorno"):
                     u, v = PERP[p.axis]
                     for lp in p.loops:
                         if lp is not p.loops[0] and not _orthogonal_profile([lp]):
@@ -471,11 +551,10 @@ class Planner:
                 u, v = PERP[p.axis]
                 refs[u].append(Ref(u, p.center[0], i, "center", False))
                 refs[v].append(Ref(v, p.center[1], i, "center", False))
-                for r_k, _, _ in self._radial_keys(p):
+                for r_k, _, _ in ([] if self._relaxed(i, "raios") else self._radial_keys(p)):
                     refs[u].append(Ref(u, p.center[0] + r_k, i, "radial", True))
-                if p.flat_bottom:
+                if p.flat_bottom and p.flat_top and not self._relaxed(i, "altura"):
                     refs[p.axis].append(Ref(p.axis, p.h0, i, "lo", True))
-                if p.flat_top:
                     refs[p.axis].append(Ref(p.axis, p.h1, i, "hi", True))
         return refs
 
@@ -749,6 +828,10 @@ class Planner:
             out.append(p)
         return out
 
+    def _relaxed(self, i: int, what: str) -> bool:
+        """A restrição ``what`` do sólido i foi solta pelo teste de flexão?"""
+        return what in self.opts.relax.get(f"s{i + 1}", ())
+
     def _radial_keys(self, p: Revolution) -> list[tuple[float, float, str]]:
         """Pontos-chave radiais de uma revolução vertical centrada (Nível C)."""
         if getattr(self, "_mode", "C") != "C" or p.axis != "z":
@@ -774,6 +857,8 @@ class Planner:
         for i, p in enumerate(prims):
             if self._thin_for_constraints(p):
                 prims[i] = _as_fixed(p)
+            elif isinstance(p, Revolution):
+                _ensure_caps(p)
         self.prims = prims
         # Planta redonda: um cilindro centrado com o diâmetro do envelope.
         self.round_footprint = abs(self.W - self.D) <= MERGE_TOL and any(
@@ -875,7 +960,7 @@ class Planner:
                 use(h1)
                 aligned = []
                 loops = p.loops
-                if _alignable(p.loops[0]):
+                if _alignable(p.loops[0]) and not self._relaxed(i, "contorno"):
                     u, v = PERP[p.axis]
                     loops = []
                     for li, lp in enumerate(p.loops):
@@ -889,8 +974,10 @@ class Planner:
                             aligned.append((li, si, lv))
                         loops.append(list(lp))
                     if any(sg.kind == "arc" for sg in p.loops[0]):
-                        notes.append("cantos curvos acompanham as retas travadas (o raio pode variar ao flexionar)")
+                        notes.append("cantos curvos deslizam com as retas travadas")
                     part_level = "C"
+                elif self._relaxed(i, "contorno"):
+                    notes.append("contorno fixo: travá-lo deformaria o perfil ao flexionar; espessura/altura paramétricas")
                 else:
                     notes.append("contorno curvo sem retas nos extremos: forma fixa, espessura/altura paramétricas")
                 s = dict(base, kind="extrusion", axis=p.axis, loops=loops, extent=[h0, h1], _aligned=aligned)
@@ -905,7 +992,9 @@ class Planner:
                     if c.is_plane:
                         use(c)
                 ext_lv = None
-                if p.flat_bottom and p.flat_top:
+                if self._relaxed(i, "altura"):
+                    notes.append("altura fixa: mover as tampas deformaria o perfil ao flexionar")
+                elif p.flat_bottom and p.flat_top:
                     a = lvl(i, p.axis, "lo", p.h0)
                     b = lvl(i, p.axis, "hi", p.h1)
                     use(a)
@@ -913,7 +1002,9 @@ class Planner:
                     ext_lv = [a, b]
                 profile = list(p.profile)
                 radial: list[tuple[int, Lvl]] = []
-                for key in self._radial_keys(p):
+                if self._relaxed(i, "raios"):
+                    notes.append("raios fixos: travar o perfil deformaria a forma ao flexionar")
+                for key in ([] if self._relaxed(i, "raios") else self._radial_keys(p)):
                     lv_r = lvl(i, u, "radial", p.center[0] + key[0])
                     res = _insert_radial(profile, key, lv_r.value - p.center[0], p.h0, p.h1)
                     if res is None:
@@ -1000,17 +1091,15 @@ class Planner:
                 s["alignments"] = []
                 if aligned:
                     u, v = PERP[s["axis"]]
-                    snap_u: dict[float, float] = {}
-                    snap_v: dict[float, float] = {}
-                    for li, si, lv in aligned:
-                        sgm = loops[li][si]
-                        if lv.axis == u:
-                            snap_u[round(sgm.start[0], 6)] = lv.value
-                        else:
-                            snap_v[round(sgm.start[1], 6)] = lv.value
-                    loops = [[_snap_segment(x, snap_u, snap_v) for x in lp] for lp in loops]
-                    for li, si, lv in aligned:
-                        s["alignments"].append({"loop": li, "segment": si, "plane": pid(lv)})
+                    fixed = _snap_aligned(loops, [(li, si, 0 if lv.axis == u else 1, lv) for li, si, lv in aligned])
+                    k = int(s["id"][1:]) - 1
+                    if fixed is None:
+                        self._downgrade(part_reports, k, "contorno não pôde ser travado sem distorcer: forma fixa")
+                    else:
+                        loops, al_list = fixed
+                        s["alignments"] = [{"loop": li, "segment": si, "plane": pid(lv)} for li, si, lv in al_list]
+                        if not _extremes_aligned(loops[0], [(si, lv) for li, si, lv in al_list if li == 0], u):
+                            self._downgrade(part_reports, k, "nem todas as bordas do contorno ficaram travadas")
                 s["loops"] = [[x.to_spec() for x in lp] for lp in loops]
             elif s["kind"] == "extrusion":
                 s["loops"] = [[x.to_spec() for x in lp] for lp in s["loops"]]
@@ -1151,6 +1240,12 @@ class Planner:
             q["value"] = round(float(q["value"]), 4)
         return q
 
+    def _downgrade(self, part_reports: list[dict], k: int, note: str) -> None:
+        if 0 <= k < len(self.part_levels) and self.part_levels[k] == "C":
+            self.part_levels[k] = "B"
+            part_reports[k]["level"] = "B"
+            part_reports[k]["notes"].append(note)
+
     def _achieved_level(self, requested: str) -> str:
         if requested == "B":
             return "B"
@@ -1180,6 +1275,70 @@ class Planner:
             return f"Ø{vals['Diâmetro']:.0f} x {vals.get('Altura', self.H):.0f}"
         parts = [f"{vals[k]:.0f}" for k in ("Largura", "Profundidade", "Altura") if k in vals]
         return " x ".join(parts) if parts else "Padrão"
+
+
+def _snap_aligned(loops: list[list[Segment]], targets: list[tuple[int, int, int, "Lvl"]]):
+    """Encosta as retas travadas exatamente nos planos e limpa o contorno.
+
+    Cada reta recebe a coordenada do seu plano; as pontas compartilhadas com os
+    vizinhos acompanham. Depois remove segmentos menores que 1 mm e refaz a
+    lista de alinhamentos. Retorna None se o contorno ficar inválido.
+    """
+    from shapely.geometry import Polygon
+
+    from ..geometry.polygons import MIN_SEGMENT, _enforce_min_length
+    from ..spec.evaluate import discretize_loop
+
+    loops = [list(lp) for lp in loops]
+    for li, si, idx, lv in targets:
+        lp = loops[li]
+        n = len(lp)
+        seg = lp[si]
+        ns = list(seg.start)
+        ne = list(seg.end)
+        ns[idx] = ne[idx] = float(lv.value)
+        ns_t, ne_t = (ns[0], ns[1]), (ne[0], ne[1])
+        lp[si] = Segment(seg.kind, ns_t, ne_t, seg.mid, seg.center, seg.radius)
+        prev, nxt = lp[(si - 1) % n], lp[(si + 1) % n]
+        lp[(si - 1) % n] = Segment(prev.kind, prev.start, ns_t, prev.mid, prev.center, prev.radius)
+        lp[(si + 1) % n] = Segment(nxt.kind, ne_t, nxt.end, nxt.mid, nxt.center, nxt.radius)
+    out: list[list[Segment]] = []
+    for lp in loops:
+        cleaned = _enforce_min_length(lp, MIN_SEGMENT)
+        if len(cleaned) < 2 or any(sg.length() < MIN_SEGMENT - 1e-9 for sg in cleaned):
+            return None
+        try:
+            poly = Polygon(discretize_loop([sg.to_spec() for sg in cleaned]))
+        except Exception:
+            return None
+        if not poly.is_valid or poly.area <= 0:
+            return None
+        out.append(cleaned)
+    by_value = {(idx, round(float(lv.value), 6)): lv for _, _, idx, lv in targets}
+    al: list[tuple[int, int, "Lvl"]] = []
+    for li, lp in enumerate(out):
+        for si, sg in enumerate(lp):
+            if sg.kind != "line":
+                continue
+            for idx in (0, 1):
+                if abs(sg.start[idx] - sg.end[idx]) <= 1e-6:
+                    lv = by_value.get((idx, round(sg.start[idx], 6)))
+                    if lv is not None:
+                        al.append((li, si, lv))
+                    break
+    return out, al
+
+
+def _extremes_aligned(loop: list[Segment], aligned: list[tuple[int, "Lvl"]], u_axis: str) -> bool:
+    """Cada extremo do contorno (u mín/máx, v mín/máx) tem uma reta travada?"""
+    pts = [p for sg in loop for p in (sg.start, sg.end)]
+    need = [(0, min(p[0] for p in pts)), (0, max(p[0] for p in pts)), (1, min(p[1] for p in pts)), (1, max(p[1] for p in pts))]
+    have = []
+    for si, lv in aligned:
+        sg = loop[si]
+        idx = 0 if lv.axis == u_axis else 1
+        have.append((idx, sg.start[idx]))
+    return all(any(i == a and abs(c - val) <= 0.05 for a, c in have) for i, val in need)
 
 
 def _snap_segment(s: Segment, snap_u: dict[float, float], snap_v: dict[float, float]) -> Segment:

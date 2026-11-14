@@ -101,8 +101,14 @@ Coordenadas a menos de 1 mm viram um único plano (o Revit não aceita cotas nul
 
 ## Decisões e limites conhecidos
 
-- **Revoluções:** a altura é paramétrica (faces de topo e base travadas); os raios do perfil ficam fixos nesta versão.
-- **Formas livres:** geometria fiel e fixa. Não acompanham o envelope.
-- **Extrusões com curvas:** espessura/altura paramétricas, contorno fixo (contornos retos são totalmente paramétricos).
+- **Revoluções** (vasos, luminárias, colunas): altura paramétrica pelas tampas planas; nas revoluções verticais centradas, a barriga, a boca e a base do perfil ganham trechos verticais de 2 mm travados em planos radiais (*Diâmetro* e raios proporcionais). No Revit, a reta do esboço é travada diretamente ou, se o Revit recusar, pelo modo de edição de esboço; o relatório informa qual funcionou.
+- **Contornos com cantos arredondados** (tampos, painéis): as retas paralelas aos eixos ficam travadas; os arcos tangentes deslizam junto com elas, mantendo o raio, como o Revit faz ao preservar a tangência no esboço. Contornos sem reta em algum extremo, como ovais, ficam com o contorno fixo (Nível B).
+- **Teste de flexão do motor:** reproduz o esboço do Revit. Retas travadas acompanham os planos, as junções se mantêm, os arcos tangentes deslizam e as retas livres esticam. A flexão é recusada se algum trecho ficar menor que 1 mm ou se o perfil se cruzar. O *valor mínimo seguro* de cada parâmetro sai desse teste.
+- **Limites do Revit:** curvas menores que ~0,8 mm são recusadas. O motor nunca gera trecho, espessura ou diâmetro menor que 1 mm (o validador do motor e o do plugin conferem). Peças mais finas que 1,2 mm são engrossadas para 1,2 mm e ficam fixas.
+- **Muitas formas livres:** acima de 40 peças, as menores são agrupadas por material em conjuntos de *Detalhes*. Sem isso, um vaso com 1.400 fragmentos ou uma poltrona com 15 mil retalhos ficaria pesado demais no Revit.
+- **Escala:** a unidade vem do arquivo (cabeçalho, Collada, convenção do formato) ou é estimada pelo tamanho. glTF é em metros por convenção, mas muitos exportadores não respeitam isso: se o tamanho ficar implausível (menos de 2 cm ou mais de 12 m), a unidade é estimada de novo, com aviso. O usuário também pode informar o **tamanho real** de uma medida (altura, largura, profundidade ou maior dimensão).
+- **Formas livres:** geometria fiel e fixa; não acompanham o envelope.
 - **Malhas soldadas complexas:** podem gerar fatias em vez de peças inteiras; arquivos com objetos separados dão os melhores resultados.
 - **IA 3D:** resultados aproximados (forma livre). Para objetos redondos, a revolução pela silhueta é melhor e é a escolha automática.
+- **Windows:** o motor lê o pipe de entrada com `PeekNamedPipe` (sem leitura bloqueante pendente), porque uma leitura síncrona pendente bloquearia a carga de bibliotecas nativas em outras threads.
+- **Motor livre ao responder:** o estado "ocupado" é limpo *antes* de a resposta ser enviada. Quem recebe a resposta pode mandar o pedido seguinte na hora (por exemplo, "analisar imagem" → "gerar família").

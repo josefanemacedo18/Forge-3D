@@ -276,29 +276,53 @@ internal sealed class SolidBuilder
         var materialId = s.Material is not null && _ctx.Spec.FindParameter(s.Material)?.StringValue is { } mid
                          && _ctx.Materials.TryGetValue(mid, out var m) ? m : ElementId.InvalidElementId;
 
+        // Uma malha pode ter várias peças separadas (detalhes agrupados): cada
+        // peça conectada vira um conjunto de faces próprio.
+        var components = Forge3D.Core.Mesh.MeshTopology.Components(s.Faces!, verts.Count);
+
         TessellatedShapeBuilderResult BuildShape(TessellatedShapeBuilderTarget target, TessellatedShapeBuilderFallback fallback)
         {
             var b = new TessellatedShapeBuilder { Target = target, Fallback = fallback, GraphicsStyleId = ElementId.InvalidElementId };
-            b.OpenConnectedFaceSet(true);
-            foreach (var f in s.Faces!)
+            foreach (var comp in components)
             {
-                var face = new TessellatedFace(new List<XYZ> { verts[f[0]], verts[f[1]], verts[f[2]] }, materialId);
-                if (b.DoesFaceHaveEnoughLoopsAndVertices(face)) b.AddFace(face);
+                b.OpenConnectedFaceSet(true);
+                foreach (var f in comp)
+                {
+                    var face = new TessellatedFace(new List<XYZ> { verts[f[0]], verts[f[1]], verts[f[2]] }, materialId);
+                    if (b.DoesFaceHaveEnoughLoopsAndVertices(face)) b.AddFace(face);
+                }
+                b.CloseConnectedFaceSet();
             }
-            b.CloseConnectedFaceSet();
             b.Build();
             return b.GetBuildResult();
         }
 
-        // 1) Sólido de forma livre (aceita material e visibilidade da família).
+        // 1) Sólido(s) de forma livre (aceitam material e visibilidade da família).
+        //    Todas as peças são criadas — nenhuma é descartada em silêncio.
         bool asSolid = Create(s, () =>
         {
             var res = BuildShape(TessellatedShapeBuilderTarget.Solid, TessellatedShapeBuilderFallback.Abort);
-            var solid = res.GetGeometricalObjects().OfType<Solid>().FirstOrDefault(x => x.Volume > 0)
-                        ?? throw new InvalidOperationException("malha não forma um sólido fechado");
-            return FreeFormElement.Create(Doc, solid);
+            var solids = res.GetGeometricalObjects().OfType<Solid>().Where(x => x.Volume > 0)
+                            .SelectMany(x => SolidUtils.SplitVolumes(x)).Where(x => x.Volume > 0).ToList();
+            if (solids.Count == 0) throw new InvalidOperationException("malha não forma um sólido fechado");
+            var first = FreeFormElement.Create(Doc, solids[0]);
+            var extras = new List<Element>();
+            foreach (var piece in solids.Skip(1))
+            {
+                var ff = FreeFormElement.Create(Doc, piece);
+                ApplyVisibility(ff, s.Visibility);
+                extras.Add(ff);
+            }
+            if (extras.Count > 0) _ctx.ExtraSolids[s.Id] = extras;
+            return first;
         });
-        if (asSolid) return;
+        if (asSolid)
+        {
+            if (_ctx.ExtraSolids.TryGetValue(s.Id, out var more))
+                _ctx.Report.Ok(Stage, $"{s.Name}: peças", $"{more.Count + 1} formas livres");
+            return;
+        }
+        _ctx.ExtraSolids.Remove(s.Id);
         _ctx.Report.Items.RemoveAt(_ctx.Report.Items.Count - 1);
         // 2) Forma direta com malha (geometria fiel, sem material paramétrico).
         Create(s, () =>
@@ -436,12 +460,17 @@ internal sealed class SolidBuilder
     {
         foreach (var s in _ctx.Spec.Solids)
         {
-            if (s.Material is null || s.IsVoid || !_ctx.Solids.TryGetValue(s.Id, out var e)) continue;
+            if (s.Material is null || s.IsVoid || !_ctx.Solids.ContainsKey(s.Id)) continue;
             if (!_ctx.Params.TryGetValue(s.Material, out var fp)) continue;
-            var param = e.get_Parameter(BuiltInParameter.MATERIAL_ID_PARAM);
-            if (param is null) continue;
+            var elements = _ctx.ElementsOf(s.Id).ToList();
             var r = Tx.Run(Doc, $"Forge 3D - material {s.Name}", () =>
-                _ctx.Mgr.AssociateElementParameterToFamilyParameter(param, fp));
+            {
+                foreach (var e in elements)
+                {
+                    var param = e.get_Parameter(BuiltInParameter.MATERIAL_ID_PARAM);
+                    if (param is not null) _ctx.Mgr.AssociateElementParameterToFamilyParameter(param, fp);
+                }
+            });
             if (r.Ok) _ctx.Report.Ok("Materiais", s.Name, fp.Definition.Name);
             else _ctx.Report.Fail("Materiais", s.Name, r.ErrorText);
         }
@@ -457,9 +486,8 @@ internal sealed class SolidBuilder
             var cutter = _ctx.Solids[v.Id];
             var cbb = cutter.get_BoundingBox(null);
             int count = 0;
-            foreach (var b in bodies)
+            foreach (var (b, body) in bodies.SelectMany(b => _ctx.ElementsOf(b.Id).Select(e => (b, e))))
             {
-                var body = _ctx.Solids[b.Id];
                 var bbb = body.get_BoundingBox(null);
                 if (cbb is null || bbb is null || !Overlap(cbb, bbb)) continue;
                 var r = Tx.Run(Doc, $"Forge 3D - recorte {v.Name}", () =>

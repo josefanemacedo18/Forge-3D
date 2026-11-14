@@ -44,8 +44,15 @@ def prepare(prim: FreeformMesh, max_faces: int) -> FreeformMesh:
         except Exception:
             pass
     if not mesh.is_watertight:
-        mesh = voxel_remesh(mesh)
-        notes.append("superfície aberta fechada por remalhamento volumétrico")
+        try:
+            closed = voxel_remesh(mesh)
+        except Exception:
+            closed = None
+        if closed is not None and len(closed.faces) > 0:
+            mesh = closed
+            notes.append("superfície aberta fechada por remalhamento volumétrico")
+        else:
+            notes.append("superfície aberta mantida como malha (fina demais para remalhar)")
     if len(mesh.faces) > max_faces:
         try:
             simplified = mesh.simplify_quadric_decimation(face_count=max(int(max_faces), 64))
@@ -54,7 +61,9 @@ def prepare(prim: FreeformMesh, max_faces: int) -> FreeformMesh:
                 notes.append(f"simplificada para {len(mesh.faces)} triângulos")
         except Exception as exc:  # pragma: no cover - depende da biblioteca nativa
             notes.append(f"simplificação indisponível ({exc})")
-    mesh = _revit_safe_weld(mesh, notes)
+    welded = _revit_safe_weld(mesh, notes)
+    if len(welded.faces) > 0:
+        mesh = welded
     try:
         trimesh.repair.fix_winding(mesh)
         trimesh.repair.fix_inversion(mesh)

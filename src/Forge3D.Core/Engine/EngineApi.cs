@@ -18,6 +18,10 @@ public sealed class ConvertMeshRequest
     [JsonPropertyName("sheetThickness")] public double SheetThickness { get; init; } = 3.0;
     [JsonPropertyName("maxFreeformFaces")] public int MaxFreeformFaces { get; init; } = 15000;
     [JsonPropertyName("computeFidelity")] public bool ComputeFidelity { get; init; } = true;
+    /// <summary>Medida real conhecida do objeto (mm); nula = usar a unidade do arquivo.</summary>
+    [JsonPropertyName("targetSize")] public double? TargetSize { get; init; }
+    /// <summary>Qual medida é o <see cref="TargetSize"/>: z (altura), x (largura), y (profundidade) ou max.</summary>
+    [JsonPropertyName("targetAxis")] public string TargetAxis { get; init; } = "z";
 }
 
 /// <summary>Pedido de conversão de imagem (método convert_image).</summary>

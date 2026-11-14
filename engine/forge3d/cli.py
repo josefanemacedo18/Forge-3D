@@ -31,6 +31,9 @@ def _print_summary(summary: dict) -> None:
         print(f"  Aviso: {w}")
 
 
+MEASURES = {"altura": "z", "largura": "x", "profundidade": "y", "maior": "max"}
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="forge3d", description="Motor do Forge 3D")
     parser.add_argument("--versao", action="version", version=f"forge3d {__version__}")
@@ -46,6 +49,10 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("--eixo", default="auto", choices=["auto", "Z", "Y", "-Z", "-Y", "X", "-X"])
     c.add_argument("--categoria", default="GenericModel")
     c.add_argument("--nome", default=None)
+    c.add_argument("--tamanho-real", type=float, default=None, dest="tamanho_real",
+                   help="medida real conhecida do objeto (mm): ajusta a escala")
+    c.add_argument("--medida", default="altura", choices=list(MEASURES),
+                   help="qual medida é o --tamanho-real (padrão: altura)")
     c.add_argument("-o", "--saida", default=None)
 
     i = sub.add_parser("imagem", help="gera FamilySpec a partir de uma imagem")
@@ -76,7 +83,9 @@ def main(argv: list[str] | None = None) -> int:
             from .pipeline import ConvertOptions, convert_mesh_file
 
             res = convert_mesh_file(args.arquivo, ConvertOptions(level=args.nivel, units=args.unidade, up_axis=args.eixo,
-                                                                 category=args.categoria, family_name=args.nome),
+                                                                 category=args.categoria, family_name=args.nome,
+                                                                 target_size=args.tamanho_real,
+                                                                 target_axis=MEASURES[args.medida]),
                                     progress=lambda f, m: print(f"[{f:4.0%}] {m}", file=sys.stderr))
             out = args.saida or str(Path(args.arquivo).with_suffix(".familyspec.json"))
             Path(out).write_text(json.dumps(res.spec, ensure_ascii=False), encoding="utf-8")

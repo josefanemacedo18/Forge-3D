@@ -16,7 +16,7 @@ from typing import Any
 import numpy as np
 
 from . import formula as fx
-from .validate import PERP_AXES, ROOTS, anchor_position, parameter_values, plane_positions
+from .validate import MIN_SEGMENT_MM, PERP_AXES, ROOTS, anchor_position, parameter_values, plane_positions
 
 AXIS_INDEX = {"x": 0, "y": 1, "z": 2}
 
@@ -135,7 +135,7 @@ def evaluate_solids(spec: dict, overrides: dict[str, float] | None = None, build
             hi = [planes[s[ax][1]] for ax in ("x", "y", "z")]
             ext = [h - l for l, h in zip(lo, hi)]
             for ax, e in zip("xyz", ext):
-                if e <= 0.5:
+                if e < MIN_SEGMENT_MM:
                     problems.append(f"caixa '{s['id']}' com dimensão {ax} = {e:.2f} mm")
             if build_meshes and all(e > 0 for e in ext):
                 mesh = trimesh.creation.box(extents=ext)
@@ -147,9 +147,9 @@ def evaluate_solids(spec: dict, overrides: dict[str, float] | None = None, build
             d = s["diameter"]
             dia = float(values[d["driver"]]) if d["driver"] else d["value"]
             h0, h1 = planes[s["extent"][0]], planes[s["extent"][1]]
-            if h1 - h0 <= 0.5:
+            if h1 - h0 < MIN_SEGMENT_MM:
                 problems.append(f"cilindro '{s['id']}' com altura {h1 - h0:.2f} mm")
-            if dia <= 0.5:
+            if dia < MIN_SEGMENT_MM:
                 problems.append(f"cilindro '{s['id']}' com diâmetro {dia:.2f} mm")
             if build_meshes and h1 > h0 and dia > 0:
                 mesh = trimesh.creation.cylinder(radius=dia / 2, height=h1 - h0, sections=48)
@@ -163,8 +163,10 @@ def evaluate_solids(spec: dict, overrides: dict[str, float] | None = None, build
             if "extent" in s:
                 h0, h1 = planes[s["extent"][0]], planes[s["extent"][1]]
                 loops = _flex_loops(s, planes, original, axes)
-                if h1 - h0 <= 0.5:
+                if h1 - h0 < MIN_SEGMENT_MM:
                     problems.append(f"extrusão '{s['id']}' com espessura {h1 - h0:.2f} mm")
+                if any(abs(planes[al["plane"]] - original[al["plane"]]) > 1e-9 for al in s.get("alignments", [])):
+                    problems += _profile_problems(loops, f"extrusão '{s['id']}'")
                 if build_meshes and h1 > h0:
                     poly = _polygon_from_loops(loops)
                     if poly is None or poly.is_empty or poly.area <= 0:
@@ -190,38 +192,29 @@ def evaluate_solids(spec: dict, overrides: dict[str, float] | None = None, build
             cu = anchor_position(s["center"]["u"], planes, original, values)
             cv = anchor_position(s["center"]["v"], planes, original, values)
             prof = s["profile"]
-            h_shift_lo = h_shift_hi = 0.0
             r0, r1 = s["range"]
+            # Como no esboço do Revit (ver _flex_loop): trechos radiais e tampas
+            # de topo/base travados acompanham seus planos; o resto se ajusta.
+            locks: dict[int, tuple[int, float]] = {}
+            for al in s.get("alignments", []):
+                locks[al["segment"]] = (0, planes[al["plane"]] - original[al["plane"]])
             if s.get("extent"):
-                h_shift_lo = planes[s["extent"][0]] - original[s["extent"][0]]
-                h_shift_hi = planes[s["extent"][1]] - original[s["extent"][1]]
-            if s.get("alignments"):
-                # Trechos radiais travados acompanham seus planos (e os vértices
-                # ligados a eles), como no esboço do Revit.
-                shifts = []
-                for al in s["alignments"]:
-                    seg = prof[al["segment"]]
-                    shifts.append((seg["start"][0], planes[al["plane"]] - original[al["plane"]]))
-
-                def _shift_pt(pt):
-                    for r_old, d in shifts:
-                        if abs(pt[0] - r_old) <= 0.05:
-                            return [pt[0] + d, pt[1]]
-                    return pt
-
-                prof = [dict(seg, start=_shift_pt(seg["start"]), end=_shift_pt(seg["end"])) for seg in prof]
-                if any(seg["start"][0] < -0.01 for seg in prof):
+                for ref, h in ((s["extent"][0], r0), (s["extent"][1], r1)):
+                    cap = next((k for k, g in enumerate(prof) if g["type"] == "line" and abs(g["start"][1] - h) <= 0.05
+                                and abs(g["end"][1] - h) <= 0.05), None)
+                    if cap is not None:
+                        locks[cap] = (1, planes[ref] - original[ref])
+            if any(abs(d) > 1e-9 for _, d in locks.values()):
+                prof = _flex_loop(prof, locks)
+                if any(seg["start"][0] < -0.01 or seg["end"][0] < -0.01 for seg in prof):
                     problems.append(f"revolução '{s['id']}' com raio negativo após flexão")
+                problems += _profile_problems([prof], f"revolução '{s['id']}'")
             pts = discretize_loop(prof)
-            # Alongamento linear do perfil entre as faces de topo e base (o
-            # Revit alonga a revolução quando as faces planas são movidas).
             span = r1 - r0
-            new_lo, new_hi = r0 + h_shift_lo, r1 + h_shift_hi
-            if new_hi - new_lo <= 0.5:
+            new_lo, new_hi = float(pts[:, 1].min()), float(pts[:, 1].max())
+            if new_hi - new_lo < MIN_SEGMENT_MM:
                 problems.append(f"revolução '{s['id']}' com altura {new_hi - new_lo:.2f} mm")
             if build_meshes and new_hi > new_lo and span > 0:
-                t = (pts[:, 1] - r0) / span
-                pts = np.column_stack([pts[:, 0], new_lo + t * (new_hi - new_lo)])
                 mesh = _revolve(pts)
                 if mesh is not None:
                     mesh.apply_transform(_to_axis_frame(s["axis"]))
@@ -237,34 +230,119 @@ def evaluate_solids(spec: dict, overrides: dict[str, float] | None = None, build
 
 
 def _flex_loops(s: dict, planes: dict[str, float], original: dict[str, float], axes: dict[str, str]) -> list[list[dict]]:
-    """Aplica às coordenadas do perfil o deslocamento dos planos alinhados.
-
-    Modelo simplificado do que o Revit faz: os segmentos travados em planos
-    acompanham o plano; os vértices ligados a eles se deslocam junto.
-    """
+    """Perfil de uma extrusão depois de mover os planos alinhados (ver _flex_loop)."""
     if not s.get("alignments"):
         return s["loops"]
     u_ax, _ = PERP_AXES[s["axis"]]
-    shifts: list[tuple[int, float, float]] = []
+    locks: dict[int, dict[int, tuple[int, float]]] = {}
     for al in s["alignments"]:
         pid = al["plane"]
         idx = 0 if axes[pid] == u_ax else 1
-        shifts.append((idx, original[pid], planes[pid] - original[pid]))
-    loops = []
-    for loop in s["loops"]:
-        new_loop = []
-        for seg in loop:
-            seg2 = dict(seg)
-            for key in ("start", "end", "mid"):
-                if key in seg:
-                    p = list(seg[key])
-                    for idx, coord, delta in shifts:
-                        if abs(seg[key][idx] - coord) < 0.05:
-                            p[idx] = seg[key][idx] + delta
-                    seg2[key] = p
-            new_loop.append(seg2)
-        loops.append(new_loop)
-    return loops
+        locks.setdefault(al["loop"], {})[al["segment"]] = (idx, planes[pid] - original[pid])
+    return [_flex_loop(lp, locks.get(k, {})) for k, lp in enumerate(s["loops"])]
+
+
+def _seg_tangent(seg: dict, at_end: bool) -> np.ndarray | None:
+    """Direção (unitária, no sentido do percurso) do segmento no início ou no fim."""
+    a = np.asarray(seg["start"], float)
+    b = np.asarray(seg["end"], float)
+    if seg["type"] == "line":
+        d = b - a
+    else:
+        c, _ = circle_from_3pts(a, np.asarray(seg["mid"], float), b)
+        if c is None:
+            d = b - a
+        else:
+            p = b if at_end else a
+            rad = p - c
+            d = np.array([-rad[1], rad[0]])
+            # Sentido do percurso: o ponto médio deve ficar "à frente" no início.
+            ref = (np.asarray(seg["mid"], float) - a) if not at_end else (b - np.asarray(seg["mid"], float))
+            if float(d @ ref) < 0:
+                d = -d
+    n = float(np.linalg.norm(d))
+    return d / n if n > 1e-12 else None
+
+
+def _flex_loop(loop: list[dict], locks: dict[int, tuple[int, float]]) -> list[dict]:
+    """Modelo do que o Revit faz com um esboço quando planos alinhados se movem.
+
+    - Retas travadas acompanham o plano (na coordenada travada).
+    - Os extremos ligados a elas se movem junto (as junções são mantidas).
+    - Arcos tangentes numa junção que se moveu são transladados inteiros (o
+      Revit mantém a tangência e o raio), levando a junção do outro lado.
+    - Retas livres apenas esticam entre suas junções.
+    """
+    n = len(loop)
+    if n == 0 or not locks:
+        return loop
+    # Junção j = fim do segmento j = início do segmento (j + 1) % n.
+    fixed: list[list[float | None]] = [[None, None] for _ in range(n)]
+    for i, (c, d) in locks.items():
+        for j in ((i - 1) % n, i):
+            fixed[j][c] = d if fixed[j][c] is None else (fixed[j][c] + d) / 2
+    if all(abs(v or 0.0) < 1e-12 for f in fixed for v in f):
+        return loop
+    prop: list[list[float | None]] = [[None, None] for _ in range(n)]
+
+    def cur(j: int) -> list[float]:
+        return [fixed[j][c] if fixed[j][c] is not None else (prop[j][c] if prop[j][c] is not None else 0.0)
+                for c in (0, 1)]
+
+    def tangent_at(j: int) -> bool:
+        t1 = _seg_tangent(loop[j], True)
+        t2 = _seg_tangent(loop[(j + 1) % n], False)
+        return t1 is not None and t2 is not None and float(t1 @ t2) > math.cos(math.radians(3))
+
+    from collections import deque
+
+    queue = deque(j for j in range(n) if any(abs(v) > 1e-12 for v in cur(j)))
+    done: set[int] = set()
+    while queue:
+        j = queue.popleft()
+        if not tangent_at(j):
+            continue
+        for seg_i, far in ((j, (j - 1) % n), ((j + 1) % n, (j + 1) % n)):
+            if loop[seg_i]["type"] != "arc" or seg_i in locks or seg_i in done:
+                continue
+            done.add(seg_i)
+            sj = cur(j)
+            for c in (0, 1):
+                if fixed[far][c] is None:
+                    prop[far][c] = sj[c] if prop[far][c] is None else (prop[far][c] + sj[c]) / 2
+            queue.append(far)
+    shift = [cur(j) for j in range(n)]
+    out = []
+    for i, seg in enumerate(loop):
+        s0 = shift[(i - 1) % n]
+        s1 = shift[i]
+        seg2 = dict(seg)
+        seg2["start"] = [seg["start"][0] + s0[0], seg["start"][1] + s0[1]]
+        seg2["end"] = [seg["end"][0] + s1[0], seg["end"][1] + s1[1]]
+        if seg["type"] == "arc":
+            seg2["mid"] = [seg["mid"][0] + (s0[0] + s1[0]) / 2, seg["mid"][1] + (s0[1] + s1[1]) / 2]
+            seg2.pop("center", None)
+            seg2.pop("radius", None)
+        out.append(seg2)
+    return out
+
+
+def _profile_problems(loops: list[list[dict]], label: str) -> list[str]:
+    """Perfil depois da flexão: sem trechos menores que 1 mm e sem cruzamentos
+    (o Revit recusa os dois casos ao regenerar a família)."""
+    from shapely.geometry import Polygon
+
+    for lp in loops:
+        for seg in lp:
+            if math.dist(seg["start"], seg["end"]) < MIN_SEGMENT_MM - 1e-6:
+                return [f"{label} com trecho de perfil menor que {MIN_SEGMENT_MM:g} mm após flexão"]
+        ring = discretize_loop(lp)
+        if len(ring) < 3:
+            return [f"{label} com perfil degenerado após flexão"]
+        poly = Polygon(ring)
+        if not poly.is_valid or poly.area <= 0:
+            return [f"{label} com perfil cruzado após flexão"]
+    return []
 
 
 def _extrude(poly, height: float):
@@ -363,20 +441,40 @@ def flex_test(spec: dict, factors: tuple[float, ...] = (0.75, 0.9, 1.1, 1.5)) ->
     return FlexResult(ok=not failures, failures=failures, checked=checked)
 
 
-def _order_problems(spec: dict, planes: dict[str, float], original: dict[str, float]) -> list[str]:
-    """Planos que trocaram de ordem em relação à geometria original."""
-    problems = []
-    by_axis: dict[str, list[str]] = {"x": [], "y": [], "z": []}
-    for p in spec["planes"]:
-        by_axis[p["axis"]].append(p["id"])
-    for rid, (ax, _) in ROOTS.items():
-        by_axis[ax].append(rid)
-    for ax, ids in by_axis.items():
-        ids_sorted = sorted(ids, key=lambda i: original[i])
-        for a, b in zip(ids_sorted, ids_sorted[1:]):
-            if original[b] - original[a] > 0.05 and planes[b] - planes[a] < -0.05:
-                problems.append(f"planos {a} e {b} trocaram de ordem no eixo {ax}")
-    return problems
+def flex_culprits(spec: dict, factors: tuple[float, ...] = (0.9, 1.1)) -> dict[str, set[str]]:
+    """Restrições que não aguentam variações pequenas dos parâmetros.
+
+    Para cada parâmetro editável, aplica os fatores e, nos sólidos que falham,
+    aponta o que soltar: "contorno" (retas travadas de uma extrusão), "raios"
+    e/ou "altura" (revolução). Um parâmetro que quebra a família com ±10% não
+    serve para o usuário — melhor a forma fixa do que um erro no Revit.
+    """
+    out: dict[str, set[str]] = {}
+    original = _original_positions(spec)
+    by_id = {s["id"]: s for s in spec["solids"]}
+    editable = [p for p in spec["parameters"]
+                if p["kind"] == "length" and not p.get("formula") and p["role"] in ("envelope", "semantic")]
+    for p in editable:
+        for f in factors:
+            ov = {p["id"]: float(p["value"]) * f}
+            try:
+                planes = plane_positions(spec, parameter_values(spec, ov))
+            except Exception:
+                continue
+            moved = {k for k, v in planes.items() if k in original and abs(v - original[k]) > 1e-9}
+            for es in evaluate_solids(spec, ov, build_meshes=False):
+                if not es.problems:
+                    continue
+                s = by_id[es.id]
+                aligned_moved = any(al["plane"] in moved for al in s.get("alignments", []))
+                if s["kind"] == "extrusion" and aligned_moved:
+                    out.setdefault(s["id"], set()).add("contorno")
+                elif s["kind"] == "revolution":
+                    if aligned_moved:
+                        out.setdefault(s["id"], set()).add("raios")
+                    if s.get("extent") and any(r in moved for r in s["extent"]):
+                        out.setdefault(s["id"], set()).add("altura")
+    return out
 
 
 def fidelity(spec: dict, reference_mesh, samples: int = 1500, seed: int = 0) -> dict[str, float]:

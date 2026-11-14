@@ -24,6 +24,18 @@ internal sealed class BuildContext
     public Dictionary<string, ElementId> Materials { get; } = new();
     public Dictionary<string, Element> Solids { get; } = new();
 
+    /// <summary>Elementos adicionais de um sólido do spec (malhas com várias peças
+    /// separadas, como um conjunto de detalhes agrupados: uma forma livre por peça).</summary>
+    public Dictionary<string, List<Element>> ExtraSolids { get; } = new();
+
+    /// <summary>Todos os elementos criados para o sólido do spec (o principal primeiro).</summary>
+    public IEnumerable<Element> ElementsOf(string solidId)
+    {
+        if (Solids.TryGetValue(solidId, out var main)) yield return main;
+        if (ExtraSolids.TryGetValue(solidId, out var extras))
+            foreach (var e in extras) yield return e;
+    }
+
     /// <summary>Meia extensão das linhas dos planos (pés), com folga.</summary>
     public double PlaneHalfLength { get; }
 

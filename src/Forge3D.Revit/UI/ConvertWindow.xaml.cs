@@ -38,6 +38,8 @@ public partial class ConvertWindow : Window
         UnitsBox.SelectedValue = "auto";
         UpBox.ItemsSource = Pt.UpAxes;
         UpBox.SelectedValue = "auto";
+        MeasureBox.ItemsSource = Pt.Measures;
+        MeasureBox.SelectedValue = "z";
         FitTolBox.Text = settings.FitTolerance.ToString(CultureInfo.CurrentCulture);
         MaxFacesBox.Text = settings.MaxFreeformFaces.ToString(CultureInfo.CurrentCulture);
 
@@ -48,8 +50,9 @@ public partial class ConvertWindow : Window
         CloseButton.Click += (_, _) => Close();
         FileBox.TextChanged += (_, _) => InvalidateAnalysis();
         NameBox.TextChanged += (_, _) => { if (!_settingName) NameBox.Tag = null; };
-        foreach (var box in new[] { LevelBox, CategoryBox, UnitsBox, UpBox })
+        foreach (var box in new[] { LevelBox, CategoryBox, UnitsBox, UpBox, MeasureBox })
             box.SelectionChanged += (_, _) => InvalidateAnalysis();
+        RealSizeBox.TextChanged += (_, _) => InvalidateAnalysis();
         Drop += OnDrop;
         DragOver += (_, e) =>
         {
@@ -102,12 +105,32 @@ public partial class ConvertWindow : Window
     private double ParseDouble(string text, double fallback) =>
         double.TryParse(text.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out var v) && v > 0 ? v : fallback;
 
+    /// <summary>Tamanho real opcional: vazio = nulo; inválido = false.</summary>
+    private static bool TryParseOptionalMm(string text, out double? value)
+    {
+        value = null;
+        text = text.Trim();
+        if (text.Length == 0) return true;
+        if (double.TryParse(text.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out var v)
+            && double.IsFinite(v) && v > 0 && v <= 200000)
+        {
+            value = v;
+            return true;
+        }
+        return false;
+    }
+
     private async Task AnalyzeAsync()
     {
         var path = FileBox.Text.Trim().Trim('"');
         if (!File.Exists(path))
         {
             StatusText.Text = "Arquivo não encontrado.";
+            return;
+        }
+        if (!TryParseOptionalMm(RealSizeBox.Text, out var realSize))
+        {
+            StatusText.Text = "Tamanho real inválido: informe um número em milímetros (ex.: 750) ou deixe vazio.";
             return;
         }
         if (!ModelImporter.IsSupported(path))
@@ -156,6 +179,8 @@ public partial class ConvertWindow : Window
                 FitTolerance = ParseDouble(FitTolBox.Text, 1.0),
                 MaxFreeformFaces = (int)ParseDouble(MaxFacesBox.Text, 15000),
                 SheetThickness = ParseDouble(SheetBox.Text, 3.0),
+                TargetSize = realSize,
+                TargetAxis = (string)MeasureBox.SelectedValue,
             };
             _result = await client.ConvertMeshAsync(request, progress, ct);
             _spec = SpecLoader.LoadValidated(_result.SpecPath);
@@ -202,6 +227,11 @@ public partial class ConvertWindow : Window
         AnalyzeButton.IsEnabled = !busy;
         BrowseButton.IsEnabled = !busy;
         BuildButton.IsEnabled = !busy && _spec is not null;
+        // Opções travadas durante a análise: o resultado sempre corresponde ao que está na tela.
+        foreach (var c in new System.Windows.Controls.Control[] { FileBox, LevelBox, CategoryBox, NameBox, UnitsBox, UpBox,
+                                                                  RealSizeBox, MeasureBox, AdvancedExpander })
+            c.IsEnabled = !busy;
+        AllowDrop = !busy;
         CancelButton.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
         Progress.Visibility = busy ? Visibility.Visible : Visibility.Hidden;
         if (busy) Progress.Value = 0;

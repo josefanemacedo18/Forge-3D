@@ -70,7 +70,13 @@ def test_table_semantics(tmp_path):
     # Mudar a largura mantém pernas e recuos constantes.
     big = evaluate.build_mesh(spec, {p["Largura"]["id"]: 2000.0})
     assert big.bounds[1][0] - big.bounds[0][0] == pytest.approx(2000, abs=0.01)
-    assert p["Largura"]["min"] == pytest.approx(180, abs=1)
+    # Faixa segura = o que o Revit aceita (pernas podem se sobrepor; nada se inverte).
+    assert 1.0 <= p["Largura"]["min"] < 180
+    assert p["Largura"]["max"] is None  # sem limite para crescer
+    for q in spec["parameters"]:
+        if q.get("min") is not None:
+            assert q["min"] >= 1.0, q  # nenhuma cota rotulada abaixo de 1 mm
+            assert q["min"] <= q["value"] <= (q["max"] if q.get("max") is not None else q["value"])
 
 
 def test_units_and_up_axis_detection(tmp_path):
@@ -142,3 +148,74 @@ def test_vase_diameter_is_parametric(tmp_path):
     big = evaluate.build_mesh(spec, {p["Diâmetro"]["id"]: 300.0, p["Altura"]["id"]: 500.0})
     ext = big.extents
     assert ext[0] == pytest.approx(300, abs=1) and ext[2] == pytest.approx(500, abs=1)
+
+
+def test_thin_sheets_in_any_direction_are_buildable(tmp_path):
+    """Chapas de 0,6 mm (abaixo do mínimo do Revit) em pé e deitadas: viram
+    geometria fixa de 1,2 mm, extrudada na direção da espessura."""
+    meshes = [
+        synth.box([-300, -200, 0], [300, 200, 20]),
+        synth.box([-300, -200, 20], [-299.4, 200, 400]),  # fina em X
+        synth.box([-300, 199.4, 20], [300, 200, 400]),  # fina em Y
+        synth.box([-300, -200, 400], [300, 200, 400.6]),  # fina em Z
+        synth.cylinder((0, 0), 0.3, 20, 300, 16),  # arame de 0,6 mm
+    ]
+    for level in ("C", "A"):
+        path = write(tmp_path, f"chapas_{level}", meshes)
+        spec = convert_mesh_file(path, ConvertOptions(level=level)).spec
+        validate.validate(spec)  # nenhuma curva, espessura ou diâmetro menor que 1 mm
+        assert spec["report"]["flex"]["ok"], spec["report"]["flex"]["failures"]
+        assert spec["report"]["fidelity"]["p95"] < 1.5
+
+
+def test_many_small_freeform_parts_are_grouped(tmp_path):
+    """Centenas de peças livres (folhas, parafusos) viram conjuntos de detalhes
+    por material: a família continua leve no Revit."""
+    rng = np.random.default_rng(3)
+    meshes = [synth.box([-500, -500, 0], [500, 500, 40])]
+    for k in range(90):
+        pts = rng.normal(0, 12, (40, 3))
+        import trimesh
+
+        m = trimesh.convex.convex_hull(pts)
+        m.apply_translation([(k % 10) * 90 - 400, (k // 10) * 90 - 400, 100])
+        meshes.append(m)
+    path = write(tmp_path, "folhas", meshes)
+    spec = convert_mesh_file(path, ConvertOptions(level="C")).spec
+    validate.validate(spec)
+    meshes_out = [s for s in spec["solids"] if s["kind"] == "mesh"]
+    assert len(meshes_out) <= 40
+    assert any("agrupadas" in w for w in spec["report"]["warnings"])
+
+
+def test_pointed_and_tilted_caps_keep_height_parametric(tmp_path):
+    """Revolução com ponta (cone) e aro levemente inclinado: a altura continua
+    paramétrica (tampa de 2 mm criada/nivelada) e a flexão é válida."""
+    import trimesh
+
+    # Perfil (r, h): base plana, parede, ombro e ponta no eixo.
+    prof = [(0, 0), (150, 0), (150, 300), (60, 520), (0, 600)]
+    cone = trimesh.creation.revolve(np.array(prof, float), sections=64)
+    path = write(tmp_path, "pinaculo", [cone])
+    spec = convert_mesh_file(path, ConvertOptions(level="C")).spec
+    validate.validate(spec)
+    rev = next(s for s in spec["solids"] if s["kind"] == "revolution")
+    assert rev.get("extent"), "altura deveria ser paramétrica"
+    p = {q["name"]: q for q in spec["parameters"]}
+    tall = evaluate.build_mesh(spec, {p["Altura"]["id"]: 800.0})
+    assert tall.extents[2] == pytest.approx(800, abs=1)
+    assert spec["report"]["flex"]["ok"], spec["report"]["flex"]["failures"]
+
+
+@pytest.mark.parametrize("axis,size,idx", [("z", 1500.0, 2), ("x", 2400.0, 0), ("max", 2400.0, 0)])
+def test_real_size_rescales_the_model(tmp_path, axis, size, idx):
+    """Medida real informada (modelo baixado em escala errada): a família sai
+    com a medida pedida e o aviso de unidade estimada some."""
+    path = write(tmp_path, "mesa_escala", synth.table(), header="")  # sem cabeçalho: unidade estimada
+    spec = convert_mesh_file(path, ConvertOptions(level="C", target_size=size, target_axis=axis)).spec
+    validate.validate(spec)
+    env = [spec["envelope"]["width"], spec["envelope"]["depth"], spec["envelope"]["height"]]
+    assert env[idx] == pytest.approx(size, abs=0.01)
+    assert "escala ajustada" in spec["report"]["source"]["unitsReason"]
+    assert not any("Unidade do arquivo estimada" in w for w in spec["report"]["warnings"])
+    assert spec["family"]["achievedLevel"] == "C"

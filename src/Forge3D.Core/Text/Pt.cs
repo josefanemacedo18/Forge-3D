@@ -41,6 +41,13 @@ public static class Pt
         new Choice("m", "Metros"), new Choice("in", "Polegadas"), new Choice("ft", "Pés"),
     };
 
+    /// <summary>Medidas que podem ser informadas para corrigir a escala do modelo.</summary>
+    public static readonly IReadOnlyList<Choice> Measures = new[]
+    {
+        new Choice("z", "Altura"), new Choice("x", "Largura"), new Choice("y", "Profundidade"),
+        new Choice("max", "Maior dimensão"),
+    };
+
     public static readonly IReadOnlyList<Choice> UpAxes = new[]
     {
         new Choice("auto", "Automático"), new Choice("Z", "Z para cima"), new Choice("Y", "Y para cima"),

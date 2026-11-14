@@ -373,7 +373,7 @@ public sealed class FamilyBuilder
 
     private static void CheckEnvelope(BuildContext ctx)
     {
-        var bb = Geo.ModelBounds(ctx.Doc, ctx.Solids.Where(kv => !(ctx.Spec.Solids.First(s => s.Id == kv.Key).IsVoid)).Select(kv => kv.Value));
+        var bb = Geo.ModelBounds(ctx.Doc, ctx.Spec.Solids.Where(s => !s.IsVoid).SelectMany(s => ctx.ElementsOf(s.Id)));
         if (bb is null)
         {
             ctx.Report.EnvelopeOk = false;

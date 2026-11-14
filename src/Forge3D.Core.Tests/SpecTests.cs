@@ -55,6 +55,37 @@ public class SpecTests
         Assert.Equal(50, width, 6);
     }
 
+    [Theory]
+    [MemberData(nameof(AllFixtures))]
+    public void Safe_ranges_contain_the_value_and_respect_revit_minimum(string file)
+    {
+        var spec = SpecLoader.Load(Path.Combine(FixturesDir, file));
+        foreach (var p in spec.Parameters.Where(p => p.Min is not null || p.Max is not null))
+        {
+            Assert.True(p.IsWithinSafeRange(p.NumberValue), $"{file}: {p.Name} = {p.NumberValue} fora de {p.SafeRangeText}");
+            if (p.Min is { } lo) Assert.True(lo >= 1.0, $"{file}: {p.Name} com mínimo {lo} < 1 mm");
+        }
+    }
+
+    [Fact]
+    public void Safe_range_text_is_readable()
+    {
+        var p = new ParameterSpec { Id = "p", Name = "X", Min = 12, Max = 40.25 };
+        Assert.Equal("12 – 40,3".Replace(",", System.Globalization.CultureInfo.CurrentCulture.NumberFormat.NumberDecimalSeparator), p.SafeRangeText);
+        Assert.True(p.IsWithinSafeRange(20));
+        Assert.False(p.IsWithinSafeRange(41));
+        Assert.False(p.IsWithinSafeRange(11));
+        Assert.Equal("", new ParameterSpec { Id = "q", Name = "Y" }.SafeRangeText);
+    }
+
+    [Fact]
+    public void Thin_sheets_fixture_has_no_part_thinner_than_revit_accepts()
+    {
+        var spec = SpecLoader.LoadValidated(Path.Combine(FixturesDir, "chapas_finas.json"));
+        foreach (var s in spec.Solids.Where(s => s.Kind == SolidKinds.Extrusion && s.Frame is not null))
+            Assert.True(s.Depth >= 1.0, $"{s.Id}: profundidade {s.Depth}");
+    }
+
     private static FamilySpec Mutate(string file, Action<JsonNode> change)
     {
         var node = JsonNode.Parse(File.ReadAllText(Path.Combine(FixturesDir, file)))!;

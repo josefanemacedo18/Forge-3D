@@ -74,7 +74,8 @@
         "formula": {"type": ["string", "null"]},
         "role": {"enum": ["envelope", "semantic", "auxiliary", "material", "visibility", "info"]},
         "description": {"type": "string"},
-        "min": {"type": ["number", "null"]}
+        "min": {"type": ["number", "null"]},
+        "max": {"type": ["number", "null"]}
       }
     },
     "plane": {

@@ -22,7 +22,7 @@ internal sealed class FlexTester
         var editable = spec.Parameters
             .Where(p => p.IsUserFacing && p.Kind == ParameterKinds.Length && _ctx.Params.ContainsKey(p.Id))
             .ToList();
-        var bodies = spec.Solids.Where(s => !s.IsVoid && _ctx.Solids.ContainsKey(s.Id)).Select(s => _ctx.Solids[s.Id]).ToList();
+        var bodies = spec.Solids.Where(s => !s.IsVoid).SelectMany(s => _ctx.ElementsOf(s.Id)).ToList();
         if (editable.Count == 0 || bodies.Count == 0) return;
         var envelopeAxes = EnvelopeAxes(spec);
         int k = 0;
@@ -33,7 +33,7 @@ internal sealed class FlexTester
             foreach (var factor in Factors)
             {
                 double target = p.NumberValue * factor;
-                if (p.Min is { } min && target < min) continue;
+                if (!p.IsWithinSafeRange(target)) continue; // fora da faixa segura informada pelo motor
                 envelopeAxes.TryGetValue(p.Id, out var axes);
                 var r = Tx.Probe(_ctx.Doc, $"Forge 3D - flexão {p.Name}", () => _ctx.Mgr.Set(fp, Mm.ToFt(target)), () =>
                 {
