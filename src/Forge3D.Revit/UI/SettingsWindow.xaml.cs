@@ -27,6 +27,7 @@ public partial class SettingsWindow : Window
         FlexBox.IsChecked = settings.RunFlexTest;
         LoadBox.IsChecked = settings.LoadIntoProject;
         AiMaskBox.IsChecked = settings.UseAiBackgroundRemoval;
+        PreloadBox.IsChecked = settings.PreloadEngine;
         FitTolBox.Text = settings.FitTolerance.ToString(CultureInfo.CurrentCulture);
         MaxFacesBox.Text = settings.MaxFreeformFaces.ToString(CultureInfo.CurrentCulture);
         OutputBox.Text = settings.OutputDirectory;
@@ -75,6 +76,7 @@ public partial class SettingsWindow : Window
         s.RunFlexTest = FlexBox.IsChecked == true;
         s.LoadIntoProject = LoadBox.IsChecked == true;
         s.UseAiBackgroundRemoval = AiMaskBox.IsChecked == true;
+        s.PreloadEngine = PreloadBox.IsChecked == true;
         s.FitTolerance = ParsePositive(FitTolBox.Text, 1.0);
         s.MaxFreeformFaces = (int)ParsePositive(MaxFacesBox.Text, 15000);
         s.OutputDirectory = OutputBox.Text.Trim();

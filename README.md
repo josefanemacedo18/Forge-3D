@@ -25,7 +25,7 @@ Quando o Nível C não é possível, o plugin **pergunta** se pode gerar em Nív
 
 ## Instalação
 
-Baixe o pacote **Forge3D-Revit2027** (artefato da última execução do GitHub Actions), feche o Revit e rode **Instalar.cmd**. Detalhes em [docs/GUIA-DO-USUARIO.md](docs/GUIA-DO-USUARIO.md).
+Baixe o pacote **Forge3D-Revit2027** (artefato da última execução do GitHub Actions), extraia, feche o Revit e rode **Instalar.cmd**. A instalação leva segundos e não baixa nada: o pacote já traz o motor com Python embutido. A IA 3D é opcional (**InstalarIA.cmd**). Detalhes em [docs/GUIA-DO-USUARIO.md](docs/GUIA-DO-USUARIO.md).
 
 Depois de instalar, rode **Forge 3D › Diagnóstico** no Revit: ele constrói famílias de teste e gera um relatório completo.
 
@@ -46,12 +46,14 @@ cd engine && uv venv .venv --python 3.12 && uv pip install -r requirements.txt p
 
 ```bash
 # Plugin e pacote (requer .NET 10 SDK)
-pwsh installer/package.ps1
+pwsh installer/package.ps1   # requer .NET 10 SDK e Python 3.12; gera dist/Forge3D (com engine.zip)
 ```
 
 ## Estado
 
 - **Motor:** 59 testes (inclui a reconstrução real por IA quando `FORGE3D_TEST_AI` está definido). Validado também com 24 modelos reais baixados (cadeiras, sofás, luminárias, vasos, estantes…): todos geram famílias válidas.
-- **Núcleo C#:** 61 testes, incluindo integração com o motor real e os 14 FamilySpecs de referência (os mesmos que o **Diagnóstico** monta no Revit; gerados por `engine/tools/gerar_fixtures.py`).
+- **Núcleo C#:** 62 testes, incluindo integração com o motor real e os 14 FamilySpecs de referência (os mesmos que o **Diagnóstico** monta no Revit; gerados por `engine/tools/gerar_fixtures.py`).
+- **Interface:** 12 testes no Windows (CI) abrem cada janela de verdade: tema, XAML, código das janelas, painel de prévia com as famílias de referência e ícones.
+- **Pacote:** a CI monta o pacote completo, roda os testes do motor com o próprio Python embutido e faz uma instalação real com o Windows PowerShell 5.1.
 - **Plugin:** compila contra a API do Revit 2027 sem erros nem avisos. A validação dentro do Revit é feita pelo comando **Diagnóstico**.
 - **Limites desta versão:** formas livres ficam fixas; contornos sem retas nos extremos (ovais) e revoluções fora do centro mantêm a forma (altura e espessura paramétricas). Detalhes em [docs/ARQUITETURA.md](docs/ARQUITETURA.md).

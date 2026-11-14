@@ -138,19 +138,12 @@ public class WindowTests
     }
 
     [Fact]
-    public void Convert_window_opens_without_a_revit_session()
+    public void Convert_window_opens_with_its_code()
     {
         Sta(() =>
         {
-            try
-            {
-                ShowAndClose(new ConvertWindow(null!, new Forge3DSettings(), "modelo.rft"));
-            }
-            catch (Exception ex) when (ex is System.IO.FileNotFoundException or System.IO.FileLoadException or BadImageFormatException
-                                       && ex.Message.Contains("RevitAPI", StringComparison.OrdinalIgnoreCase))
-            {
-                // Fora do Revit a API não existe; o XAML da janela já é testado acima.
-            }
+            var w = new ConvertWindow((_, _, _) => throw new NotSupportedException("sem Revit no teste"), new Forge3DSettings());
+            ShowAndClose(w);
         });
     }
 

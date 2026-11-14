@@ -39,20 +39,39 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Ambiente do motor (para os testes de integração)
+      - name: Pacote completo (plugin + motor com Python embutido)
+        shell: pwsh
+        run: ./installer/package.ps1 -Saida dist -SemTestes
+      - name: Testes do motor com o Python do pacote
+        shell: pwsh
         working-directory: engine
         run: |
-          python -m venv .venv
-          .venv\Scripts\python -m pip install -r requirements.txt
-      - name: Testes do núcleo C#
+          python -m pip install --target "$env:RUNNER_TEMP\pytest-pkgs" pytest pytest-timeout
+          $py = "${{ github.workspace }}\dist\motor-montagem\python\python.exe"
+          & $py -c "import sys; sys.path.insert(0, r'$env:RUNNER_TEMP\pytest-pkgs'); import pytest; sys.exit(pytest.main(['-q', '--timeout=300', '-p', 'no:cacheprovider', 'tests']))"
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          & $py tools/smoke_protocol.py
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: Testes do núcleo C# (integração com o motor do pacote)
         env:
-          FORGE3D_TEST_ENGINE: ${{ github.workspace }}\engine
+          FORGE3D_TEST_ENGINE: ${{ github.workspace }}\dist\motor-montagem
         run: dotnet test src/Forge3D.Core.Tests/Forge3D.Core.Tests.csproj -c Release
       - name: Testes da interface (abre cada janela do plugin)
         run: dotnet test src/Forge3D.Revit.UiTests/Forge3D.Revit.UiTests.csproj -c Release --logger "console;verbosity=normal"
-      - name: Pacote de instalação
+      - name: Instalação real (Windows PowerShell 5.1, como no duplo clique)
         shell: pwsh
-        run: ./installer/package.ps1 -Saida dist -SemTestes
+        run: |
+          $t = [Diagnostics.Stopwatch]::StartNew()
+          powershell -NoProfile -ExecutionPolicy Bypass -File dist\Forge3D\installer\install.ps1
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Write-Host "Instalação em $([math]::Round($t.Elapsed.TotalSeconds, 1)) s"
+          if (-not (Test-Path "$env:APPDATA\Autodesk\Revit\Addins\2027\Forge3D.addin")) { throw 'manifesto do add-in ausente' }
+          $py = "$env:LOCALAPPDATA\Forge3D\engine\python\python.exe"
+          & $py -m forge3d hardware
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          # Reinstalar por cima (atualização) também precisa funcionar.
+          powershell -NoProfile -ExecutionPolicy Bypass -File dist\Forge3D\installer\install.ps1 -SemTeste
+          if ($LASTEXITCODE -ne 0) { exit 1 }
       - uses: actions/upload-artifact@v4
         with:
           name: Forge3D-Revit2027

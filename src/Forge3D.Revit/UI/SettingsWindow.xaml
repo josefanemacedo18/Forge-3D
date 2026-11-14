@@ -26,7 +26,7 @@
               <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
             <Grid.RowDefinitions>
-              <RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/>
+              <RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/>
             </Grid.RowDefinitions>
             <TextBlock Style="{StaticResource Label}" Text="Nível padrão"/>
             <ComboBox x:Name="LevelBox" Grid.Column="1" DisplayMemberPath="Label" SelectedValuePath="Value" Margin="0,2"/>
@@ -37,10 +37,12 @@
             <CheckBox x:Name="FlexBox" Grid.Row="3" Grid.ColumnSpan="2" Margin="0,2" Content="Rodar o teste de flexão no Revit antes de salvar"/>
             <CheckBox x:Name="LoadBox" Grid.Row="4" Grid.ColumnSpan="2" Margin="0,2" Content="Oferecer inserção no projeto ao final"/>
             <CheckBox x:Name="AiMaskBox" Grid.Row="5" Grid.ColumnSpan="2" Margin="0,2" Content="Usar IA para remover o fundo das imagens (se instalada)"/>
-            <TextBlock Style="{StaticResource Label}" Grid.Row="6" Text="Tolerância de aproximação (mm)"/>
-            <TextBox x:Name="FitTolBox" Grid.Row="6" Grid.Column="1" Width="80" HorizontalAlignment="Left" Margin="0,2"/>
-            <TextBlock Style="{StaticResource Label}" Grid.Row="7" Text="Máx. triângulos em formas livres"/>
-            <TextBox x:Name="MaxFacesBox" Grid.Row="7" Grid.Column="1" Width="80" HorizontalAlignment="Left" Margin="0,2"/>
+            <CheckBox x:Name="PreloadBox" Grid.Row="6" Grid.ColumnSpan="2" Margin="0,2"
+                      Content="Deixar o motor pronto ao abrir o Revit (a primeira conversão sai na hora)"/>
+            <TextBlock Style="{StaticResource Label}" Grid.Row="7" Text="Tolerância de aproximação (mm)"/>
+            <TextBox x:Name="FitTolBox" Grid.Row="7" Grid.Column="1" Width="80" HorizontalAlignment="Left" Margin="0,2"/>
+            <TextBlock Style="{StaticResource Label}" Grid.Row="8" Text="Máx. triângulos em formas livres"/>
+            <TextBox x:Name="MaxFacesBox" Grid.Row="8" Grid.Column="1" Width="80" HorizontalAlignment="Left" Margin="0,2"/>
           </Grid>
         </GroupBox>
         <GroupBox Header="Pastas e programas (vazio = automático)">

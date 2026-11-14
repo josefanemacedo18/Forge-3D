@@ -22,6 +22,8 @@ public sealed class Forge3DSettings
     [JsonPropertyName("loadIntoProject")] public bool LoadIntoProject { get; set; } = true;
     [JsonPropertyName("placeAfterLoad")] public bool PlaceAfterLoad { get; set; } = true;
     [JsonPropertyName("runFlexTest")] public bool RunFlexTest { get; set; } = true;
+    /// <summary>Inicia o motor em segundo plano ao abrir o Revit (a primeira conversão já sai na hora).</summary>
+    [JsonPropertyName("preloadEngine")] public bool PreloadEngine { get; set; } = true;
     [JsonPropertyName("fitTolerance")] public double FitTolerance { get; set; } = 1.0;
     [JsonPropertyName("maxFreeformFaces")] public int MaxFreeformFaces { get; set; } = 15000;
     [JsonPropertyName("useAiBackgroundRemoval")] public bool UseAiBackgroundRemoval { get; set; } = true;

@@ -53,6 +53,11 @@ public sealed class EngineClient : IDisposable
     private Process? _process;
     private long _nextId;
     private bool _disposed;
+    // Um único início por vez: o pré-carregamento ao abrir o Revit e um clique
+    // do usuário nunca criam dois processos; quem chega depois espera o motor
+    // ficar pronto.
+    private readonly SemaphoreSlim _startGate = new(1, 1);
+    private volatile bool _ready;
 
     public EngineClient(EngineStartInfo info) => _info = info;
 
@@ -64,22 +69,40 @@ public sealed class EngineClient : IDisposable
         get { lock (_stderrTail) return string.Join(Environment.NewLine, _stderrTail); }
     }
 
+    /// <summary>O processo está rodando e já respondeu ao primeiro ping.</summary>
+    public bool IsReady => _ready && IsRunning;
+
     public async Task EnsureStartedAsync(CancellationToken ct = default)
     {
-        if (IsRunning) return;
-        Start();
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        cts.CancelAfter(_info.StartTimeout);
+        if (IsReady) return;
+        await _startGate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            await CallAsync("ping", null, null, cts.Token).ConfigureAwait(false);
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (IsReady) return;
+            if (!IsRunning)
+            {
+                _ready = false;
+                Start();
+            }
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(_info.StartTimeout);
+            try
+            {
+                await CallCoreAsync("ping", null, null, cts.Token, null).ConfigureAwait(false);
+                _ready = true;
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                Kill();
+                throw new EngineException(EngineException.CodeProcess,
+                    "O motor do Forge 3D não respondeu ao iniciar. Verifique a instalação (Configurações > Diagnóstico).",
+                    SplitLines(StderrTail));
+            }
         }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        finally
         {
-            Kill();
-            throw new EngineException(EngineException.CodeProcess,
-                "O motor do Forge 3D não respondeu ao iniciar. Verifique a instalação (Configurações > Diagnóstico).",
-                SplitLines(StderrTail));
+            _startGate.Release();
         }
     }
 
@@ -116,6 +139,7 @@ public sealed class EngineClient : IDisposable
         psi.Environment["PYTHONUTF8"] = "1";
         psi.Environment["PYTHONIOENCODING"] = "utf-8";
         psi.Environment["PYTHONDONTWRITEBYTECODE"] = "1";
+        psi.Environment["PYTHONNOUSERSITE"] = "1"; // isolado: pacotes "pip --user" do usuário não interferem
         if (!string.IsNullOrEmpty(_info.ModelsDirectory))
         {
             psi.Environment["FORGE3D_MODELS"] = _info.ModelsDirectory;
@@ -234,7 +258,13 @@ public sealed class EngineClient : IDisposable
         CancellationToken ct = default, TimeSpan? timeout = null)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        if (!IsRunning && method != "ping") await EnsureStartedAsync(ct).ConfigureAwait(false);
+        await EnsureStartedAsync(ct).ConfigureAwait(false); // espera o motor ficar pronto (ou o inicia)
+        return await CallCoreAsync(method, parameters, progress, ct, timeout).ConfigureAwait(false);
+    }
+
+    private async Task<JsonElement> CallCoreAsync(string method, object? parameters, IProgress<EngineProgress>? progress,
+        CancellationToken ct, TimeSpan? timeout)
+    {
         var id = Interlocked.Increment(ref _nextId);
         var tcs = new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);
         _pending[id] = new Pending { Completion = tcs, Progress = progress };

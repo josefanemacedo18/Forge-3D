@@ -14,7 +14,7 @@ public class EngineClientTests
     {
         var dir = Environment.GetEnvironmentVariable("FORGE3D_TEST_ENGINE");
         if (string.IsNullOrEmpty(dir)) return null;
-        var py = OperatingSystem.IsWindows() ? Path.Combine(dir, ".venv", "Scripts", "python.exe") : Path.Combine(dir, ".venv", "bin", "python");
+        var py = EngineLocator.PythonCandidates(dir).FirstOrDefault(File.Exists) ?? EngineLocator.PythonCandidates(dir).First();
         return new EngineStartInfo { PythonPath = py, EngineDirectory = dir, LogDirectory = Path.Combine(Path.GetTempPath(), "forge3d-test-logs") };
     }
 
@@ -59,6 +59,20 @@ public class EngineClientTests
         var ex = await Assert.ThrowsAsync<EngineException>(() => client.ConvertMeshAsync(
             new ConvertMeshRequest { Path = Path.Combine(tmp, "nao_existe.obj"), Output = Path.Combine(tmp, "x.json") }, null, CancellationToken.None));
         Assert.Equal(EngineException.CodeEngine, ex.Code);
+    }
+
+    [Fact]
+    public async Task Concurrent_starts_share_one_engine_process()
+    {
+        var info = Info();
+        if (info is null) return; // ambiente sem motor: teste ignorado
+        using var client = new EngineClient(info);
+        // Pré-carregamento + vários cliques ao mesmo tempo: um só processo, todos atendidos.
+        var tasks = Enumerable.Range(0, 5).Select(_ => Task.Run(() => client.PingAsync())).ToList();
+        tasks.Add(Task.Run(async () => { await client.EnsureStartedAsync(); return await client.PingAsync(); }));
+        var results = await Task.WhenAll(tasks);
+        Assert.All(results, r => Assert.Equal(EngineApi.ProtocolVersion, r.Protocol));
+        Assert.True(client.IsReady);
     }
 
     [Fact]

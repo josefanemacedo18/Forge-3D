@@ -8,20 +8,27 @@ O Forge 3D é um plugin para o **Revit 2027** que transforma modelos 3D e fotos 
 |---|---|
 | Sistema | Windows 10 ou 11 (64 bits) |
 | Revit | Revit 2027 |
-| Internet | Somente durante a instalação. Depois, tudo funciona offline. |
+| Internet | Não é necessária. Só o módulo de IA (opcional) baixa arquivos, uma única vez. |
 | GPU NVIDIA | Opcional. Acelera a reconstrução 3D por IA; sem GPU, a IA roda na CPU. |
 | 3ds Max | Opcional. Necessário só para abrir `.max`, `.fbx` e `.3ds`. |
 | SketchUp | Opcional. O Revit já lê `.skp`; o SketchUp só é usado se o arquivo for de uma versão que o Revit não lê. |
 
-## 2. Instalação
+## 2. Instalação (rápida, sem downloads)
 
-1. Baixe o pacote **Forge3D-Revit2027** (artefato da compilação do GitHub Actions) e extraia a pasta.
+1. Baixe o pacote **Forge3D-Revit2027** (artefato da compilação do GitHub Actions) e **extraia** a pasta.
 2. **Feche o Revit.**
-3. Dê dois cliques em **Instalar.cmd**.
-4. Responda se quer o **módulo de IA 3D** (cerca de 4 GB de download, uma única vez). Você pode instalar depois rodando o instalador de novo.
-5. Ao final aparece "Forge 3D instalado com sucesso".
+3. Dê dois cliques em **Instalar.cmd**. Em poucos segundos aparece "Forge 3D instalado" e a janela fecha sozinha.
+4. Abra o Revit 2027: a aba **Forge 3D** já está pronta para uso.
 
-O instalador cria um Python próprio e isolado (não interfere em outros programas), copia o plugin para `%APPDATA%\Autodesk\Revit\Addins\2027` e grava a configuração em `%APPDATA%\Forge3D\config.json`.
+O pacote já traz o motor completo (um Python próprio e isolado, com todas as bibliotecas instaladas), então nada é baixado e não é preciso ser administrador. O plugin vai para `%APPDATA%\Autodesk\Revit\Addins\2027`, o motor para `%LOCALAPPDATA%\Forge3D` e a configuração para `%APPDATA%\Forge3D\config.json`.
+
+Ao abrir o Revit, o motor é iniciado em segundo plano. A primeira conversão já encontra tudo carregado. Para desligar, use **Configurações › Deixar o motor pronto ao abrir o Revit**.
+
+Para **atualizar**, rode o Instalar.cmd da versão nova. As configurações, as famílias geradas e o módulo de IA são mantidos.
+
+### Módulo de IA 3D (opcional)
+
+A reconstrução 3D por IA, para fotos de objetos sem simetria, e a remoção de fundo por IA ficam num módulo à parte. Para instalar, feche o Revit e dê dois cliques em **InstalarIA.cmd**. Ele baixa cerca de 4 GB uma única vez e depois funciona offline. Sem esse módulo, a geração por imagem continua funcionando para objetos simétricos (revolução) e para silhuetas (extrusão).
 
 ### Primeiro uso: Diagnóstico
 

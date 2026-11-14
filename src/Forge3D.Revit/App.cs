@@ -37,6 +37,7 @@ public sealed class App : IExternalApplication
             Add(tools, "Forge3D.Diagnostico", "Diagnóstico", typeof(DiagnosticsCommand), "DX", Icons.Green,
                 "Autoteste do Forge 3D neste Revit.",
                 "Constrói famílias de teste, roda o teste de flexão e gera um relatório completo.");
+            application.ControlledApplication.ApplicationInitialized += (_, _) => PreloadEngine();
             Log.Info("Forge 3D iniciado.");
             return Result.Succeeded;
         }
@@ -44,6 +45,37 @@ public sealed class App : IExternalApplication
         {
             Log.Error("Falha ao iniciar o Forge 3D", ex);
             return Result.Failed;
+        }
+    }
+
+    /// <summary>
+    /// Inicia o motor em segundo plano assim que o Revit termina de abrir: a
+    /// primeira conversão já encontra o Python e as bibliotecas carregados.
+    /// Nunca atrapalha o Revit — qualquer falha só vai para o registro e o
+    /// motor é iniciado de novo quando for usado.
+    /// </summary>
+    private static void PreloadEngine()
+    {
+        try
+        {
+            var settings = Forge3D.Core.Settings.Forge3DSettings.Load();
+            if (!settings.PreloadEngine) return;
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await EngineHost.Get(settings).EnsureStartedAsync().ConfigureAwait(false);
+                    Log.Info("Motor pré-carregado e pronto.");
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn($"Pré-carregamento do motor falhou (será tentado de novo ao usar): {ex.Message}");
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Pré-carregamento do motor não iniciado: {ex.Message}");
         }
     }
 

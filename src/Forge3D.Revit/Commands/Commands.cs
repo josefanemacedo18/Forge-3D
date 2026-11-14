@@ -3,6 +3,7 @@ using Autodesk.Revit.UI;
 using Forge3D.Core.Library;
 using Forge3D.Core.Settings;
 using Forge3D.Revit.Building;
+using Forge3D.Revit.Import;
 using Forge3D.Revit.Infrastructure;
 using Forge3D.Revit.UI;
 
@@ -18,7 +19,8 @@ public sealed class ConvertModelCommand : CommandBase
         var settings = Forge3DSettings.Load();
         var template = FamilyCreationFlow.ResolveTemplate(uiapp, settings);
         if (template is null) return Result.Cancelled;
-        var window = new ConvertWindow(uiapp, settings, template);
+        var window = new ConvertWindow((path, workDir, ct) => ModelImporter.Prepare(uiapp.Application,
+            uiapp.ActiveUIDocument?.Document, path, settings, template, workDir, ct), settings);
         SetOwner(window, uiapp);
         if (window.ShowDialog() != true || window.Outcome is null) return Result.Cancelled;
         return FamilyCreationFlow.Run(uiapp, settings, template, window.Outcome);

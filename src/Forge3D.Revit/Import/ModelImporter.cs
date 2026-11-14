@@ -8,6 +8,9 @@ namespace Forge3D.Revit.Import;
 /// <summary>Arquivo pronto para o motor e como ele foi obtido.</summary>
 public sealed record PreparedModel(string MeshPath, string Route, IReadOnlyList<string> Notes);
 
+/// <summary>Prepara um arquivo para o motor (caminho, pasta de trabalho, cancelamento).</summary>
+public delegate PreparedModel ModelPreparer(string path, string workDir, CancellationToken ct);
+
 /// <summary>
 /// Decide a rota de leitura de cada formato:
 /// - OBJ, STL, PLY, OFF, GLB/GLTF, DAE, 3MF: direto no motor;

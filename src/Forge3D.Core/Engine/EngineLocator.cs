@@ -38,18 +38,37 @@ public static class EngineLocator
         }
         engineDir ??= candidates[0];
 
-        string python;
+        // Python: o configurado (se existir), o Python embutido no pacote
+        // (engine\python) ou um ambiente de desenvolvimento (.venv).
+        var pythons = new List<string>();
         if (!string.IsNullOrWhiteSpace(settings.PythonPath))
-            python = Environment.ExpandEnvironmentVariables(settings.PythonPath);
+            pythons.Add(Environment.ExpandEnvironmentVariables(settings.PythonPath));
+        pythons.AddRange(PythonCandidates(engineDir));
+        string python = pythons[0];
+        foreach (var p in pythons)
+        {
+            checkedPaths.Add(p);
+            if (File.Exists(p))
+            {
+                python = p;
+                break;
+            }
+        }
+        return new Location(python, engineDir, settings.ResolvedModelsDirectory, checkedPaths);
+    }
+
+    /// <summary>Onde procurar o Python dentro da pasta do motor.</summary>
+    public static IEnumerable<string> PythonCandidates(string engineDir)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            yield return Path.Combine(engineDir, "python", "python.exe");
+            yield return Path.Combine(engineDir, ".venv", "Scripts", "python.exe");
+        }
         else
         {
-            var venv = OperatingSystem.IsWindows()
-                ? Path.Combine(engineDir, ".venv", "Scripts", "python.exe")
-                : Path.Combine(engineDir, ".venv", "bin", "python");
-            python = venv;
+            yield return Path.Combine(engineDir, ".venv", "bin", "python");
         }
-        checkedPaths.Add(python);
-        return new Location(python, engineDir, settings.ResolvedModelsDirectory, checkedPaths);
     }
 
     public static EngineStartInfo StartInfo(Forge3DSettings settings, string? addinDirectory = null)

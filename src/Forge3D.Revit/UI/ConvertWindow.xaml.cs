@@ -1,6 +1,5 @@
 using System.Globalization;
 using System.Windows;
-using Autodesk.Revit.UI;
 using Forge3D.Core.Engine;
 using Forge3D.Core.Settings;
 using Forge3D.Core.Spec;
@@ -12,9 +11,8 @@ namespace Forge3D.Revit.UI;
 
 public partial class ConvertWindow : Window
 {
-    private readonly UIApplication _uiapp;
+    private readonly ModelPreparer _prepare;
     private readonly Forge3DSettings _settings;
-    private readonly string _templatePath;
     private CancellationTokenSource? _cts;
     private FamilySpec? _spec;
     private ConversionResult? _result;
@@ -24,12 +22,13 @@ public partial class ConvertWindow : Window
 
     public ConversionOutcome? Outcome { get; private set; }
 
-    public ConvertWindow(UIApplication uiapp, Forge3DSettings settings, string templatePath)
+    /// <param name="prepare">Prepara o arquivo para o motor (o comando liga isto à API do Revit;
+    /// assim a janela não depende do Revit e pode ser testada sozinha).</param>
+    public ConvertWindow(ModelPreparer prepare, Forge3DSettings settings)
     {
         InitializeComponent();
-        _uiapp = uiapp;
+        _prepare = prepare;
         _settings = settings;
-        _templatePath = templatePath;
         LevelBox.ItemsSource = Pt.Levels;
         LevelBox.SelectedValue = settings.DefaultLevel;
         CategoryBox.ItemsSource = Pt.Categories;
@@ -155,14 +154,12 @@ public partial class ConvertWindow : Window
             if (ModelImporter.Via3dsMax.Contains(ext))
             {
                 StatusText.Text = "Exportando pelo 3ds Max (pode levar alguns minutos)…";
-                _prepared = await Task.Run(() => ModelImporter.Prepare(_uiapp.Application, _uiapp.ActiveUIDocument?.Document,
-                    path, _settings, _templatePath, workDir, ct), ct);
+                _prepared = await Task.Run(() => _prepare(path, workDir, ct), ct);
             }
             else
             {
                 // Rotas pelo Revit usam a API: rodam na thread da interface.
-                _prepared = ModelImporter.Prepare(_uiapp.Application, _uiapp.ActiveUIDocument?.Document, path, _settings,
-                    _templatePath, workDir, ct);
+                _prepared = _prepare(path, workDir, ct);
             }
             var client = EngineHost.Get(_settings);
             StatusText.Text = "Iniciando o motor…";
