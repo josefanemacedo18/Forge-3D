@@ -462,14 +462,12 @@ internal sealed class SolidBuilder
         {
             if (s.Material is null || s.IsVoid || !_ctx.Solids.ContainsKey(s.Id)) continue;
             if (!_ctx.Params.TryGetValue(s.Material, out var fp)) continue;
-            var elements = _ctx.ElementsOf(s.Id).ToList();
+            var targets = _ctx.ElementsOf(s.Id).Select(e => e.get_Parameter(BuiltInParameter.MATERIAL_ID_PARAM))
+                              .Where(param => param is not null).ToList();
+            if (targets.Count == 0) continue; // ex.: forma direta, que não tem parâmetro de material
             var r = Tx.Run(Doc, $"Forge 3D - material {s.Name}", () =>
             {
-                foreach (var e in elements)
-                {
-                    var param = e.get_Parameter(BuiltInParameter.MATERIAL_ID_PARAM);
-                    if (param is not null) _ctx.Mgr.AssociateElementParameterToFamilyParameter(param, fp);
-                }
+                foreach (var param in targets) _ctx.Mgr.AssociateElementParameterToFamilyParameter(param, fp);
             });
             if (r.Ok) _ctx.Report.Ok("Materiais", s.Name, fp.Definition.Name);
             else _ctx.Report.Fail("Materiais", s.Name, r.ErrorText);

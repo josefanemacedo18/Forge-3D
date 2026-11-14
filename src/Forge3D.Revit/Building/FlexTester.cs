@@ -11,6 +11,10 @@ namespace Forge3D.Revit.Building;
 internal sealed class FlexTester
 {
     private static readonly double[] Factors = { 0.85, 1.2 };
+
+    /// <summary>Máximo de parâmetros flexionados no Revit (cada flexão regenera a
+    /// família). Os de envelope vêm primeiro; o motor já conferiu todos.</summary>
+    internal const int MaxParameters = 30;
     private readonly BuildContext _ctx;
 
     public FlexTester(BuildContext ctx) => _ctx = ctx;
@@ -19,9 +23,14 @@ internal sealed class FlexTester
     {
         var spec = _ctx.Spec;
         var report = _ctx.Report;
-        var editable = spec.Parameters
+        var all = spec.Parameters
             .Where(p => p.IsUserFacing && p.Kind == ParameterKinds.Length && _ctx.Params.ContainsKey(p.Id))
             .ToList();
+        var editable = all.OrderBy(p => p.Role == "envelope" ? 0 : 1).ThenByDescending(p => p.NumberValue)
+                          .Take(MaxParameters).ToList();
+        if (all.Count > editable.Count)
+            report.FlexResults.Add($"{editable.Count} de {all.Count} parâmetros flexionados no Revit (os principais); " +
+                                   "o motor já tinha conferido todos.");
         var bodies = spec.Solids.Where(s => !s.IsVoid).SelectMany(s => _ctx.ElementsOf(s.Id)).ToList();
         if (editable.Count == 0 || bodies.Count == 0) return;
         var envelopeAxes = EnvelopeAxes(spec);
