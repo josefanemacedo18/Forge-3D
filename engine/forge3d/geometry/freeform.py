@@ -54,6 +54,7 @@ def prepare(prim: FreeformMesh, max_faces: int) -> FreeformMesh:
                 notes.append(f"simplificada para {len(mesh.faces)} triângulos")
         except Exception as exc:  # pragma: no cover - depende da biblioteca nativa
             notes.append(f"simplificação indisponível ({exc})")
+    mesh = _revit_safe_weld(mesh, notes)
     try:
         trimesh.repair.fix_winding(mesh)
         trimesh.repair.fix_inversion(mesh)
@@ -70,6 +71,25 @@ def prepare(prim: FreeformMesh, max_faces: int) -> FreeformMesh:
     out.deviation = prim.deviation
     out.notes = notes
     return out
+
+
+def _revit_safe_weld(mesh, notes: list[str], min_edge: float = 1.0):
+    """Funde vértices a menos de ~1 mm (o Revit rejeita arestas menores que
+    0,78 mm ao montar sólidos). Só aplica se a malha continuar fechada."""
+    import trimesh
+
+    edges = mesh.edges_unique_length
+    if len(edges) == 0 or float(edges.min()) >= min_edge:
+        return mesh
+    from .cleanup import weld
+
+    v, f = weld(np.asarray(mesh.vertices), np.asarray(mesh.faces), min_edge * 0.9)
+    candidate = trimesh.Trimesh(v, f, process=True)
+    if mesh.is_watertight and not candidate.is_watertight:
+        return mesh
+    short = int((edges < min_edge).sum())
+    notes.append(f"{short} aresta(s) menores que {min_edge:g} mm fundidas para o Revit")
+    return candidate
 
 
 def distribute_budget(prims: list[FreeformMesh], total_faces: int, min_faces: int = 200) -> list[int]:

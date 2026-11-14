@@ -71,3 +71,38 @@ def test_ai_strategy_without_module_gives_clear_error(tmp_path):
     vase_image(p)
     with pytest.raises(EngineError, match="IA"):
         convert_image(str(p), ImageOptions(strategy="ia", reference_mm=450), work_dir=str(tmp_path))
+
+
+def test_uniform_background_prefers_exact_color_method(tmp_path):
+    from forge3d.image.silhouette import border_uniformity, extract, load_image
+
+    p = tmp_path / "cadeira.png"
+    chair_image(p)
+    img = load_image(str(p))
+    assert border_uniformity(np.asarray(img)) >= 0.9
+    sil = extract(img, use_ai=True)
+    assert sil.method == "cor de fundo"
+    # O vão entre as pernas continua vazio (a IA de recorte tende a preenchê-lo).
+    assert not sil.mask[600, 200:400].any()
+
+
+def test_keep_significant_removes_ai_fragments():
+    import trimesh
+
+    from forge3d.image.pipeline_image import _keep_significant
+
+    big = trimesh.creation.icosphere(3, radius=100)
+    tiny = trimesh.creation.icosphere(1, radius=3)
+    tiny.apply_translation([300, 0, 0])
+    cleaned = _keep_significant(trimesh.util.concatenate([big, tiny]))
+    assert len(cleaned.split(only_watertight=False)) == 1
+
+
+@pytest.mark.skipif(not __import__("os").environ.get("FORGE3D_TEST_AI"), reason="defina FORGE3D_TEST_AI para testar a IA real")
+def test_ai_reconstruction_real(tmp_path):
+    p = tmp_path / "vaso.jpg"
+    vase_image(p)
+    res = convert_image(str(p), ImageOptions(strategy="ia", reference_mm=450), work_dir=str(tmp_path))
+    validate.validate(res.spec)
+    assert res.spec["envelope"]["height"] == pytest.approx(450, abs=1)
+    assert len([s for s in res.spec["solids"] if s["kind"] == "mesh"]) == 1

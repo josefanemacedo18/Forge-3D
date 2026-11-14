@@ -36,6 +36,28 @@ def models_dir() -> Path:
     return engine_root() / "models"
 
 
+def hf_home() -> Path:
+    """Cache do Hugging Face usado pelo Forge 3D (preenchido pelo instalador)."""
+    return Path(os.environ.get("FORGE3D_HF_HOME", str(models_dir() / "hf")))
+
+
+def _dino_config_cached() -> bool:
+    snap = hf_home() / "hub" / "models--facebook--dino-vitb16" / "snapshots"
+    return snap.is_dir() and any((d / "config.json").is_file() for d in snap.iterdir())
+
+
+def _configure_offline() -> None:
+    """Aponta o Hugging Face para o cache local e liga o modo offline.
+
+    O TripoSR lê o config.json do 'facebook/dino-vitb16' ao montar o modelo;
+    com o arquivo no cache, nenhuma conexão é necessária.
+    """
+    os.environ["HF_HOME"] = str(hf_home())
+    if _dino_config_cached():
+        os.environ["HF_HUB_OFFLINE"] = "1"
+        os.environ["TRANSFORMERS_OFFLINE"] = "1"
+
+
 def triposr_dirs() -> tuple[Path, Path]:
     """(pasta do código do TripoSR, pasta dos pesos)."""
     code = Path(os.environ.get("FORGE3D_TRIPOSR_CODE", str(models_dir().parent / "vendor" / "TripoSR")))
@@ -67,6 +89,25 @@ def _install_mcubes_shim() -> None:
     sys.modules["torchmcubes"] = mod
 
 
+def _install_rembg_stub() -> None:
+    """O TripoSR importa o rembg no topo de tsr/utils.py, mas o Forge 3D usa a
+    própria silhueta. Se o rembg não carregar, um substituto mínimo evita que
+    a reconstrução falhe por causa de uma função que não é usada."""
+    try:
+        import rembg  # noqa: F401
+        return
+    except Exception:
+        pass
+    mod = types.ModuleType("rembg")
+
+    def _unavailable(*_a, **_k):
+        raise EngineError("Remoção de fundo por IA indisponível (rembg não carregou).")
+
+    mod.new_session = _unavailable
+    mod.remove = _unavailable
+    sys.modules["rembg"] = mod
+
+
 def status() -> dict:
     """Disponibilidade do módulo de IA (sem carregar o modelo)."""
     code, weights = triposr_dirs()
@@ -83,6 +124,9 @@ def status() -> dict:
         out["reason"] = f"Pesos do TripoSR não encontrados em {weights}."
         return out
     out["available"] = True
+    out["offline"] = _dino_config_cached()
+    if not out["offline"]:
+        out["reason"] = "Configuração do codificador de imagem ausente no cache: a primeira execução precisará de internet."
     return out
 
 
@@ -93,7 +137,9 @@ def _load_model(device: str, chunk: int):
     code, weights = triposr_dirs()
     if str(code) not in sys.path:
         sys.path.insert(0, str(code))
+    _configure_offline()
     _install_mcubes_shim()
+    _install_rembg_stub()
     from tsr.system import TSR  # type: ignore
 
     key = f"{device}"
@@ -113,6 +159,7 @@ def _prepare_image(img_rgba, mask: np.ndarray):
     code, _ = triposr_dirs()
     if str(code) not in sys.path:
         sys.path.insert(0, str(code))
+    _install_rembg_stub()
     from tsr.utils import resize_foreground  # type: ignore
 
     arr = np.asarray(img_rgba.convert("RGBA")).copy()
@@ -123,12 +170,24 @@ def _prepare_image(img_rgba, mask: np.ndarray):
     return Image.fromarray((rgb * 255.0).astype(np.uint8))
 
 
+def _extract_mesh(model, scene_codes, resolution: int):
+    """Compatível com as duas versões do TripoSR (GitHub e Hugging Face):
+    só uma delas tem o parâmetro has_vertex_color."""
+    import inspect
+
+    params = inspect.signature(model.extract_mesh).parameters
+    if "has_vertex_color" in params:
+        return model.extract_mesh(scene_codes, False, resolution=resolution)
+    return model.extract_mesh(scene_codes, resolution=resolution)
+
+
 def reconstruct(img_rgba, mask: np.ndarray, profile: str, progress: Callable[[float, str], None] | None = None,
                 cancel: Callable[[], bool] | None = None):
     """Malha (trimesh) reconstruída pela IA, em escala e orientação do modelo."""
     st = status()
     if not st["available"]:
         raise EngineError("Módulo de IA indisponível: " + st["reason"])
+    _configure_offline()
     import torch
 
     report = progress or (lambda f, m: None)
@@ -153,7 +212,7 @@ def reconstruct(img_rgba, mask: np.ndarray, profile: str, progress: Callable[[fl
                 if cancel and cancel():
                     raise CancelledError()
                 report(0.7, "Extraindo a superfície")
-                meshes = model.extract_mesh(scene_codes, True, resolution=resolution)
+                meshes = _extract_mesh(model, scene_codes, resolution)
             mesh = meshes[0]
             if len(mesh.faces) == 0:
                 raise EngineError("A IA não gerou geometria para esta imagem.")

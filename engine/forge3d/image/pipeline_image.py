@@ -67,6 +67,26 @@ def suggest_strategy(sil: Silhouette, ai_ok: bool) -> tuple[str, str]:
     return "extrusao", "silhueta sem simetria de rotação e módulo de IA não instalado"
 
 
+def _keep_significant(mesh, min_ratio: float = 0.02):
+    """Remove fragmentos soltos (artefatos da reconstrução por IA)."""
+    import trimesh
+
+    parts = mesh.split(only_watertight=False)
+    if len(parts) <= 1:
+        return mesh
+
+    def size(m):
+        try:
+            return abs(float(m.volume)) if m.is_watertight else float(m.area) * 1e-3
+        except Exception:
+            return 0.0
+
+    sizes = [size(m) for m in parts]
+    total = sum(sizes) or 1.0
+    keep = [m for m, s in zip(parts, sizes) if s >= min_ratio * total]
+    return trimesh.util.concatenate(keep) if keep else mesh
+
+
 def analyze_image(path: str, opts: ImageOptions, work_dir: str | None = None) -> dict:
     img = load_image(path)
     sil = extract(img, use_ai=opts.use_ai_mask)
@@ -135,15 +155,23 @@ def convert_image(path: str, opts: ImageOptions | None = None, progress: Callabl
         if size <= 0:
             raise EngineError("A IA gerou uma geometria sem dimensão.")
         mesh.vertices = v * (target / size)
+        mesh = _keep_significant(mesh)
         warnings.append("Geometria reconstruída por IA: confira a forma e as proporções na prévia.")
     work = Path(work_dir or tempfile.mkdtemp(prefix="forge3d_"))
     work.mkdir(parents=True, exist_ok=True)
     obj_path = work / (sanitize_name(Path(path).stem, "imagem", 60).replace(" ", "_") + "_forge3d.obj")
     save_obj(obj_path, [Part("objeto", np.asarray(mesh.vertices), np.asarray(mesh.faces))])
     name = opts.family_name or sanitize_name(Path(path).stem.replace("_", " "), "Forge3D Familia", 80)
+    # Malhas da IA são aproximadas: a tolerância de reconhecimento acompanha
+    # essa precisão (1% do tamanho) para ainda achar revoluções e caixas.
+    fit_tol = 1.0
+    if strategy == "ia":
+        ext = np.asarray(mesh.extents, dtype=float)
+        fit_tol = max(2.0, 0.01 * float(ext.max()))
     result = convert_mesh_file(
         str(obj_path),
-        ConvertOptions(level=opts.level, units="mm", up_axis="Z", category=opts.category, family_name=name),
+        ConvertOptions(level=opts.level, units="mm", up_axis="Z", category=opts.category, family_name=name,
+                       fit_tol=fit_tol),
         progress=lambda f, m: report(0.6 + 0.38 * f, m), cancel=cancel)
     preview = save_preview(img, sil, str(work / "silhueta.png"))
     spec = result.spec

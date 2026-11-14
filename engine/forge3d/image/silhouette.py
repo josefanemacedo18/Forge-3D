@@ -131,10 +131,30 @@ def symmetry_score(mask: np.ndarray) -> tuple[float, float]:
     return best
 
 
+def border_uniformity(rgba: np.ndarray) -> float:
+    """Fração dos pixels da borda com cor próxima da cor típica do fundo."""
+    rgb = rgba[:, :, :3].astype(np.float32)
+    border = np.concatenate([rgb[0, :], rgb[-1, :], rgb[:, 0], rgb[:, -1]])
+    med = np.median(border, axis=0)
+    return float((np.linalg.norm(border - med, axis=1) < 25).mean())
+
+
 def extract(img, use_ai: bool = True) -> Silhouette:
+    """Máscara do objeto.
+
+    Ordem: transparência da imagem; fundo liso (cor de fundo — exato e
+    determinístico, caso das fotos de catálogo); fundo complexo (IA, se
+    instalada). A IA não é usada em fundo liso porque tende a preencher vãos
+    (por exemplo, entre as pernas de uma cadeira).
+    """
     rgba = np.asarray(img)
     mask = _mask_from_alpha(rgba)
     method = "transparência da imagem"
+    if mask is None and border_uniformity(rgba) >= 0.9:
+        mask = _mask_background_color(rgba)
+        method = "cor de fundo"
+        if not (0.002 < mask.mean() < 0.95):
+            mask = None
     if mask is None and use_ai:
         mask = _mask_rembg(img)
         method = "remoção de fundo por IA"

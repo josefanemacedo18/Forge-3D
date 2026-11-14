@@ -1,0 +1,10 @@
+# Módulo de IA 3D (opcional). O PyTorch é instalado antes, pelo instalador,
+# a partir do índice da NVIDIA (CUDA 12.1, compatível com GPUs Pascal em diante):
+#   torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cu121
+rembg==2.0.59
+onnxruntime==1.19.2
+transformers==4.44.2
+einops==0.8.0
+omegaconf==2.3.0
+huggingface_hub==0.25.2
+imageio==2.35.1
