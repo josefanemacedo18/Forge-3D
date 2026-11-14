@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+build/
+dist/
+
+# .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+TestResults/
+*.nupkg
+
+# Modelos de IA e caches (baixados na instalação, nunca versionados)
+engine/models/
+*.ckpt
+*.safetensors
+*.onnx
+*.pth
+
+# Saídas locais
+out/
+*.rfa.bak
+*.0001.rfa
+tmp/
+
+# Sistema
+.DS_Store
+Thumbs.db
+desktop.ini

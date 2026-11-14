@@ -1,0 +1,237 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge3d.local/familyspec/1",
+  "title": "Forge 3D FamilySpec v1",
+  "description": "Contrato entre o motor Forge 3D (Python) e o plugin do Revit (C#). Todas as medidas de comprimento estão em milímetros, no sistema de coordenadas da família: X = largura (esquerda/direita), Y = profundidade (frente/trás), Z = altura, origem no centro em planta e na base do objeto.",
+  "type": "object",
+  "required": ["schema", "version", "family", "units", "envelope", "parameters", "planes", "materials", "solids", "types", "report"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {"const": "forge3d.familyspec"},
+    "version": {"const": 1},
+    "generator": {
+      "type": "object",
+      "properties": {
+        "name": {"type": "string"},
+        "version": {"type": "string"}
+      }
+    },
+    "family": {
+      "type": "object",
+      "required": ["name", "category", "requestedLevel", "achievedLevel"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {"type": "string", "minLength": 1, "maxLength": 120},
+        "category": {"$ref": "#/$defs/category"},
+        "description": {"type": "string"},
+        "requestedLevel": {"$ref": "#/$defs/level"},
+        "achievedLevel": {"$ref": "#/$defs/level"}
+      }
+    },
+    "units": {"const": "mm"},
+    "envelope": {
+      "type": "object",
+      "required": ["width", "depth", "height"],
+      "additionalProperties": false,
+      "properties": {
+        "width": {"type": "number", "exclusiveMinimum": 0},
+        "depth": {"type": "number", "exclusiveMinimum": 0},
+        "height": {"type": "number", "exclusiveMinimum": 0}
+      }
+    },
+    "parameters": {"type": "array", "items": {"$ref": "#/$defs/parameter"}},
+    "planes": {"type": "array", "items": {"$ref": "#/$defs/plane"}},
+    "materials": {"type": "array", "items": {"$ref": "#/$defs/material"}},
+    "solids": {"type": "array", "items": {"$ref": "#/$defs/solid"}},
+    "types": {"type": "array", "items": {"$ref": "#/$defs/familyType"}},
+    "report": {"$ref": "#/$defs/report"}
+  },
+  "$defs": {
+    "level": {"enum": ["A", "B", "C"]},
+    "category": {
+      "enum": [
+        "GenericModel", "Furniture", "FurnitureSystems", "Casework", "LightingFixtures",
+        "Planting", "Entourage", "SpecialtyEquipment", "PlumbingFixtures", "Site",
+        "Parking", "MechanicalEquipment", "ElectricalEquipment", "ElectricalFixtures",
+        "FoodServiceEquipment", "MedicalEquipment", "Signage"
+      ]
+    },
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$"},
+    "planeRef": {"type": "string", "pattern": "^(@x0|@y0|@z0|[a-z][a-z0-9_]{0,63})$"},
+    "vec2": {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2},
+    "vec3": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3},
+    "parameter": {
+      "type": "object",
+      "required": ["id", "name", "kind", "group", "instance", "value", "role"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "name": {"type": "string", "minLength": 1, "maxLength": 60, "pattern": "^[A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ0-9 _]*[A-Za-zÀ-ÖØ-öø-ÿ0-9_]$|^[A-Za-zÀ-ÖØ-öø-ÿ]$"},
+        "kind": {"enum": ["length", "angle", "number", "integer", "yesno", "material", "text"]},
+        "group": {"enum": ["dimensions", "constraints", "materials", "visibility", "identity", "other"]},
+        "instance": {"type": "boolean"},
+        "value": {"type": ["number", "string", "boolean", "null"]},
+        "formula": {"type": ["string", "null"]},
+        "role": {"enum": ["envelope", "semantic", "auxiliary", "material", "visibility", "info"]},
+        "description": {"type": "string"},
+        "min": {"type": ["number", "null"]}
+      }
+    },
+    "plane": {
+      "type": "object",
+      "required": ["id", "axis", "position", "parent", "driver", "name", "reference"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "axis": {"enum": ["x", "y", "z"]},
+        "position": {"type": "number"},
+        "parent": {"$ref": "#/$defs/planeRef"},
+        "driver": {"$ref": "#/$defs/id"},
+        "name": {"type": "string", "minLength": 1, "maxLength": 60},
+        "reference": {"enum": ["left", "right", "front", "back", "top", "bottom", "strong", "weak", "none"]}
+      }
+    },
+    "anchor": {
+      "type": "object",
+      "required": ["position", "parent", "driver"],
+      "additionalProperties": false,
+      "properties": {
+        "position": {"type": "number"},
+        "parent": {"$ref": "#/$defs/planeRef"},
+        "driver": {"oneOf": [{"$ref": "#/$defs/id"}, {"type": "null"}]}
+      }
+    },
+    "segment": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["type", "start", "end"],
+          "additionalProperties": false,
+          "properties": {
+            "type": {"const": "line"},
+            "start": {"$ref": "#/$defs/vec2"},
+            "end": {"$ref": "#/$defs/vec2"}
+          }
+        },
+        {
+          "type": "object",
+          "required": ["type", "start", "end", "mid"],
+          "additionalProperties": false,
+          "properties": {
+            "type": {"const": "arc"},
+            "start": {"$ref": "#/$defs/vec2"},
+            "end": {"$ref": "#/$defs/vec2"},
+            "mid": {"$ref": "#/$defs/vec2"},
+            "center": {"$ref": "#/$defs/vec2"},
+            "radius": {"type": "number", "exclusiveMinimum": 0}
+          }
+        }
+      ]
+    },
+    "loop": {"type": "array", "items": {"$ref": "#/$defs/segment"}, "minItems": 2},
+    "alignment": {
+      "type": "object",
+      "required": ["loop", "segment", "plane"],
+      "additionalProperties": false,
+      "properties": {
+        "loop": {"type": "integer", "minimum": 0},
+        "segment": {"type": "integer", "minimum": 0},
+        "plane": {"$ref": "#/$defs/planeRef"}
+      }
+    },
+    "frame": {
+      "type": "object",
+      "required": ["origin", "xdir", "ydir"],
+      "additionalProperties": false,
+      "properties": {
+        "origin": {"$ref": "#/$defs/vec3"},
+        "xdir": {"$ref": "#/$defs/vec3"},
+        "ydir": {"$ref": "#/$defs/vec3"}
+      }
+    },
+    "solid": {
+      "type": "object",
+      "required": ["id", "name", "kind", "material", "isVoid", "visibility", "part"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "name": {"type": "string"},
+        "kind": {"enum": ["box", "cylinder", "extrusion", "revolution", "mesh"]},
+        "material": {"oneOf": [{"$ref": "#/$defs/id"}, {"type": "null"}]},
+        "isVoid": {"type": "boolean"},
+        "visibility": {"enum": ["all", "medium_fine", "fine"]},
+        "part": {"type": "string"},
+        "x": {"type": "array", "items": {"$ref": "#/$defs/planeRef"}, "minItems": 2, "maxItems": 2},
+        "y": {"type": "array", "items": {"$ref": "#/$defs/planeRef"}, "minItems": 2, "maxItems": 2},
+        "z": {"type": "array", "items": {"$ref": "#/$defs/planeRef"}, "minItems": 2, "maxItems": 2},
+        "axis": {"enum": ["x", "y", "z"]},
+        "center": {
+          "type": "object",
+          "required": ["u", "v"],
+          "additionalProperties": false,
+          "properties": {"u": {"$ref": "#/$defs/anchor"}, "v": {"$ref": "#/$defs/anchor"}}
+        },
+        "diameter": {
+          "type": "object",
+          "required": ["value", "driver"],
+          "additionalProperties": false,
+          "properties": {
+            "value": {"type": "number", "exclusiveMinimum": 0},
+            "driver": {"oneOf": [{"$ref": "#/$defs/id"}, {"type": "null"}]}
+          }
+        },
+        "extent": {"type": "array", "items": {"$ref": "#/$defs/planeRef"}, "minItems": 2, "maxItems": 2},
+        "range": {"$ref": "#/$defs/vec2"},
+        "loops": {"type": "array", "items": {"$ref": "#/$defs/loop"}, "minItems": 1},
+        "alignments": {"type": "array", "items": {"$ref": "#/$defs/alignment"}},
+        "frame": {"$ref": "#/$defs/frame"},
+        "depth": {"type": "number", "exclusiveMinimum": 0},
+        "profile": {"$ref": "#/$defs/loop"},
+        "vertices": {"type": "array", "items": {"$ref": "#/$defs/vec3"}},
+        "faces": {"type": "array", "items": {"type": "array", "items": {"type": "integer", "minimum": 0}, "minItems": 3, "maxItems": 3}}
+      },
+      "allOf": [
+        {"if": {"properties": {"kind": {"const": "box"}}}, "then": {"required": ["x", "y", "z"]}},
+        {"if": {"properties": {"kind": {"const": "cylinder"}}}, "then": {"required": ["axis", "center", "diameter", "extent"]}},
+        {"if": {"properties": {"kind": {"const": "extrusion"}}}, "then": {"anyOf": [{"required": ["axis", "loops", "extent"]}, {"required": ["frame", "loops", "depth"]}]}},
+        {"if": {"properties": {"kind": {"const": "revolution"}}}, "then": {"required": ["axis", "center", "profile", "range"]}},
+        {"if": {"properties": {"kind": {"const": "mesh"}}}, "then": {"required": ["vertices", "faces"]}}
+      ]
+    },
+    "material": {
+      "type": "object",
+      "required": ["id", "name", "color"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "name": {"type": "string", "minLength": 1, "maxLength": 100},
+        "color": {"type": "array", "items": {"type": "integer", "minimum": 0, "maximum": 255}, "minItems": 3, "maxItems": 3},
+        "transparency": {"type": "number", "minimum": 0, "maximum": 100},
+        "shininess": {"type": "integer", "minimum": 0, "maximum": 128},
+        "smoothness": {"type": "integer", "minimum": 0, "maximum": 100}
+      }
+    },
+    "familyType": {
+      "type": "object",
+      "required": ["name", "values"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {"type": "string", "minLength": 1, "maxLength": 100},
+        "values": {"type": "object"}
+      }
+    },
+    "report": {
+      "type": "object",
+      "required": ["requestedLevel", "achievedLevel", "parametricCoverage", "parts", "warnings", "levelCBlockers"],
+      "properties": {
+        "requestedLevel": {"$ref": "#/$defs/level"},
+        "achievedLevel": {"$ref": "#/$defs/level"},
+        "parametricCoverage": {"type": "number", "minimum": 0, "maximum": 1},
+        "parts": {"type": "array"},
+        "warnings": {"type": "array", "items": {"type": "string"}},
+        "levelCBlockers": {"type": "array", "items": {"type": "string"}},
+        "source": {"type": "object"},
+        "timings": {"type": "object"}
+      }
+    }
+  }
+}
