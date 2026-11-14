@@ -417,3 +417,78 @@ def loop_is_axis_rectangle(loop: Loop, tol: float) -> bool:
         if min(du, dv) > tol:
             return False
     return True
+
+
+def orthogonalize(poly, angle_tol_deg: float = 6.0, max_diag_ratio: float = 0.03, max_area_change: float = 0.02):
+    """Endireita contornos quase retilíneos (silhuetas de pixels).
+
+    Arestas quase horizontais/verticais viram exatas; chanfros diagonais curtos
+    nos cantos são substituídos pelo canto reto. Se o contorno não for
+    predominantemente retilíneo, ou se a área mudar demais, devolve o original.
+    """
+    from shapely.geometry import Polygon
+
+    def fix_ring(coords):
+        pts = _dedupe(np.asarray(coords, dtype=float)[:, :2])
+        n = len(pts)
+        if n < 4:
+            return None
+        size = float(max(np.ptp(pts[:, 0]), np.ptp(pts[:, 1])))
+        edges = np.roll(pts, -1, axis=0) - pts
+        lengths = np.linalg.norm(edges, axis=1)
+        ang = np.degrees(np.arctan2(np.abs(edges[:, 1]), np.abs(edges[:, 0])))
+        kind = np.where(ang <= angle_tol_deg, "H", np.where(ang >= 90 - angle_tol_deg, "V", "D"))
+        hv_len = lengths[kind != "D"].sum()
+        if hv_len < 0.85 * lengths.sum():
+            return None
+        diag_ok = (kind != "D") | (lengths <= max_diag_ratio * size)
+        if not diag_ok.all():
+            return None
+        # Só arestas H/V; cada aresta vira uma reta (eixo fixo, coordenada média).
+        segs = []
+        for i in range(n):
+            if kind[i] == "D":
+                continue
+            a, b = pts[i], pts[(i + 1) % n]
+            if kind[i] == "H":
+                segs.append(("H", (a[1] + b[1]) / 2))
+            else:
+                segs.append(("V", (a[0] + b[0]) / 2))
+        # Funde arestas consecutivas do mesmo tipo (colineares após o ajuste).
+        merged = []
+        for k, c in segs:
+            if merged and merged[-1][0] == k:
+                merged[-1] = (k, (merged[-1][1] + c) / 2)
+            else:
+                merged.append((k, c))
+        if len(merged) > 1 and merged[0][0] == merged[-1][0]:
+            k, c = merged.pop()
+            merged[0] = (k, (merged[0][1] + c) / 2)
+        if len(merged) < 4 or len(merged) % 2:
+            return None
+        # Cantos: interseção de cada aresta com a seguinte (H com V alternados).
+        out = []
+        for i in range(len(merged)):
+            k1, c1 = merged[i]
+            k2, c2 = merged[(i + 1) % len(merged)]
+            if k1 == k2:
+                return None
+            out.append((c2, c1) if k1 == "H" else (c1, c2))
+        return out
+
+    ext = fix_ring(poly.exterior.coords)
+    if ext is None:
+        return poly
+    holes = []
+    for interior in poly.interiors:
+        h = fix_ring(interior.coords)
+        holes.append(h if h is not None else list(interior.coords))
+    try:
+        new = Polygon(ext, holes).buffer(0)
+    except Exception:
+        return poly
+    if new.is_empty or new.geom_type != "Polygon":
+        return poly
+    if abs(new.area - poly.area) > max_area_change * poly.area:
+        return poly
+    return new

@@ -169,6 +169,16 @@ def try_axis_prism(mesh, axis: str, opts: Options) -> Primitive | None:
     return _prism_profile_primitive(poly, axis, h0, h1, opts)
 
 
+def _rectilinear(loops) -> bool:
+    for lp in loops:
+        for sg in lp:
+            if sg.kind != "line":
+                return False
+            if min(abs(sg.end[0] - sg.start[0]), abs(sg.end[1] - sg.start[1])) > 1e-3:
+                return False
+    return True
+
+
 # ---------------------------------------------------------------------------
 # 3. prisma girado (eixos da caixa orientada)
 
@@ -650,6 +660,12 @@ def classify_closed(mesh, opts: Options, depth: int = 0, skip_axes: tuple[str, .
     for axis in ("z", "x", "y"):
         prim = try_axis_prism(mesh, axis, opts)
         if prim is not None:
+            # Perfil retilíneo não retangular (L, U, silhueta de cadeira): caixas
+            # separadas dão parâmetros com significado (pernas, assento...).
+            if isinstance(prim, Extrusion) and _rectilinear(prim.loops):
+                boxes = try_orthogonal_boxes(mesh, opts)
+                if boxes is not None and len(boxes) <= 12:
+                    return ComponentResult(list(boxes), "caixas ortogonais")
             return ComponentResult([prim], f"prisma {axis.upper()}")
     if depth == 0:
         fe = try_oriented_prism(mesh, opts)
