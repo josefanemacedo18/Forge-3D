@@ -102,3 +102,17 @@ def test_validator_catches_broken_specs(tmp_path):
     bad["parameters"][-1]["name"] = bad["parameters"][0]["name"]
     with pytest.raises(validate.SpecValidationError):
         validate.validate(bad)
+
+
+def test_level_a_off_center_revolution_is_valid(tmp_path):
+    import trimesh
+
+    v = synth.vase()
+    v.apply_translation([700, 0, 0])
+    stand = synth.box([-100, -100, 0], [100, 100, 50])
+    path = write(tmp_path, "vaso_deslocado", [v, stand])
+    spec = convert_mesh_file(path, ConvertOptions(level="A")).spec
+    validate.validate(spec)
+    revs = [s for s in spec["solids"] if s["kind"] == "revolution"]
+    assert revs and abs(revs[0]["center"]["u"]["position"]) > 100
+    assert spec["report"]["fidelity"]["p95"] < 1.5

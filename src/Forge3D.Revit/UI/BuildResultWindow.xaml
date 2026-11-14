@@ -1,0 +1,28 @@
+<Window x:Class="Forge3D.Revit.UI.BuildResultWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Forge 3D — Família criada" Width="760" Height="600" MinWidth="560" MinHeight="420">
+  <Window.Resources>
+    <ResourceDictionary Source="/Forge3D.Revit;component/UI/Theme.xaml"/>
+  </Window.Resources>
+  <Window.Style>
+    <StaticResource ResourceKey="Forge3DWindow"/>
+  </Window.Style>
+  <DockPanel Margin="16">
+    <StackPanel DockPanel.Dock="Top">
+      <TextBlock x:Name="HeaderText" Style="{StaticResource Title}"/>
+      <Border x:Name="LevelBadge" CornerRadius="4" Padding="10,6" HorizontalAlignment="Left" Margin="0,4,0,0">
+        <TextBlock x:Name="LevelText" Foreground="White" FontWeight="SemiBold"/>
+      </Border>
+      <TextBlock x:Name="SummaryText" TextWrapping="Wrap" Margin="0,8,0,0"/>
+      <TextBlock x:Name="PathText" Style="{StaticResource Hint}" Margin="0,4,0,0"/>
+    </StackPanel>
+    <DockPanel DockPanel.Dock="Bottom" Margin="0,12,0,0" LastChildFill="False">
+      <Button x:Name="FolderButton" DockPanel.Dock="Left" Content="Abrir pasta" Margin="0"/>
+      <Button x:Name="CloseButton" DockPanel.Dock="Right" Content="Fechar" IsCancel="True"/>
+      <Button x:Name="InsertButton" DockPanel.Dock="Right" Content="Inserir no projeto" Style="{StaticResource Primary}" IsDefault="True"/>
+    </DockPanel>
+    <TextBox x:Name="ReportBox" Margin="0,12,0,0" IsReadOnly="True" FontFamily="Consolas" FontSize="12"
+             VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" TextWrapping="NoWrap"/>
+  </DockPanel>
+</Window>

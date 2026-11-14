@@ -1,0 +1,16 @@
+<Window x:Class="Forge3D.Revit.UI.ProgressWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Forge 3D" Width="460" Height="150" ResizeMode="NoResize" WindowStyle="ToolWindow" Topmost="True">
+  <Window.Resources>
+    <ResourceDictionary Source="/Forge3D.Revit;component/UI/Theme.xaml"/>
+  </Window.Resources>
+  <Window.Style>
+    <StaticResource ResourceKey="Forge3DWindow"/>
+  </Window.Style>
+  <StackPanel Margin="16" VerticalAlignment="Center">
+    <TextBlock x:Name="TitleText" FontWeight="SemiBold" Text="Criando a família no Revit…"/>
+    <ProgressBar x:Name="Bar" Height="8" Margin="0,10,0,6" Minimum="0" Maximum="100"/>
+    <TextBlock x:Name="MessageText" Style="{StaticResource Hint}"/>
+  </StackPanel>
+</Window>

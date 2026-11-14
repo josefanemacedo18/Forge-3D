@@ -67,6 +67,7 @@ def test_protocol_roundtrip(tmp_path):
         msg, progress = c.call("convert_mesh", {"path": str(obj), "level": "C", "output": str(out)})
         assert "result" in msg, msg
         assert msg["result"]["summary"]["achievedLevel"] == "C"
+        assert Path(msg["result"]["previewPath"]).read_text(encoding="utf-8").count("\no s") == 5
         assert progress and progress[-1]["fraction"] == 1.0
         spec = json.loads(out.read_text(encoding="utf-8"))
         assert spec["schema"] == "forge3d.familyspec"

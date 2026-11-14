@@ -109,12 +109,13 @@ def plane_positions(spec: dict, values: dict[str, Any]) -> dict[str, float]:
 
 
 def anchor_position(anchor: dict, planes_pos: dict[str, float], original_pos: dict[str, float], values: dict) -> float:
-    parent = anchor["parent"]
-    base = planes_pos[parent]
+    """Posição de uma âncora. Sem cota (driver nulo) a âncora fica fixa na
+    posição absoluta registrada; com cota, acompanha o plano pai."""
     if anchor["driver"] is None:
-        return base
+        return float(anchor["position"])
+    parent = anchor["parent"]
     sign = 1.0 if anchor["position"] >= original_pos[parent] else -1.0
-    return base + sign * float(values[anchor["driver"]])
+    return planes_pos[parent] + sign * float(values[anchor["driver"]])
 
 
 def semantic_errors(spec: dict) -> list[str]:
@@ -256,8 +257,7 @@ def semantic_errors(spec: dict) -> list[str]:
                     errors.append(f"{kind} '{sid}': âncora {key} usa plano '{anc['parent']}' inexistente ou de outro eixo.")
                     continue
                 if anc["driver"] is None:
-                    if anc["parent"] not in ROOTS or abs(anc["position"] - original[anc["parent"]]) > POSITION_TOL:
-                        errors.append(f"{kind} '{sid}': âncora {key} sem cota precisa coincidir com um plano raiz.")
+                    pass  # âncora fixa na posição absoluta
                 else:
                     d = pids.get(anc["driver"])
                     if d is None or d["kind"] != "length":

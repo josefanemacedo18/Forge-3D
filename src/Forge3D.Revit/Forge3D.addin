@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RevitAddIns>
+  <AddIn Type="Application">
+    <Name>Forge 3D</Name>
+    <Assembly>Forge3D\Forge3D.Revit.dll</Assembly>
+    <FullClassName>Forge3D.Revit.App</FullClassName>
+    <ClientId>6F0C1B9E-4A7D-4C2B-9E3A-F0D53D3A1E27</ClientId>
+    <VendorId>FORGE3D</VendorId>
+    <VendorDescription>Forge 3D — conversão de modelos 3D e imagens em famílias paramétricas</VendorDescription>
+  </AddIn>
+</RevitAddIns>

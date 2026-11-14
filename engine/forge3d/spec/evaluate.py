@@ -379,3 +379,40 @@ def fidelity(spec: dict, reference_mesh, samples: int = 1500, seed: int = 0) -> 
     _, d2, _ = trimesh.proximity.closest_point(reference_mesh, pts_new)
     d = np.concatenate([d1, d2])
     return {"mean": round(float(d.mean()), 4), "p95": round(float(np.percentile(d, 95)), 4), "max": round(float(d.max()), 4)}
+
+
+def export_preview_obj(spec: dict, path: str) -> str:
+    """Grava a prévia (OBJ, mm, Z para cima) com um objeto por sólido.
+
+    Sólidos vazios recortam os sólidos que atravessam; o nome de cada objeto é
+    o id do sólido no spec, para o plugin colorir por nível de parametrização.
+    """
+    import trimesh
+
+    solids = evaluate_solids(spec)
+    by_id = {s["id"]: s for s in spec["solids"]}
+    voids = [s.mesh for s in solids if s.mesh is not None and by_id[s.id].get("isVoid")]
+    void_mesh = trimesh.util.concatenate(voids) if voids else None
+    lines = ["# forge3d preview units=mm up=Z"]
+    offset = 1
+    for s in solids:
+        if s.mesh is None or by_id[s.id].get("isVoid"):
+            continue
+        mesh = s.mesh
+        if void_mesh is not None:
+            try:
+                b0, b1 = mesh.bounds
+                v0, v1 = void_mesh.bounds
+                if (b0 <= v1).all() and (v0 <= b1).all():
+                    mesh = trimesh.boolean.difference([mesh, void_mesh], engine="manifold")
+            except Exception:
+                pass
+        lines.append(f"o {s.id}")
+        for v in mesh.vertices:
+            lines.append(f"v {v[0]:.3f} {v[1]:.3f} {v[2]:.3f}")
+        for f in mesh.faces:
+            lines.append(f"f {f[0] + offset} {f[1] + offset} {f[2] + offset}")
+        offset += len(mesh.vertices)
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write("\n".join(lines) + "\n")
+    return path

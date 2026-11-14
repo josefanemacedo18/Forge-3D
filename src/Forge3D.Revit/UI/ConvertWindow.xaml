@@ -1,0 +1,93 @@
+<Window x:Class="Forge3D.Revit.UI.ConvertWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:Forge3D.Revit.UI"
+        Title="Forge 3D — Converter modelo 3D" Width="1120" Height="760" MinWidth="900" MinHeight="600"
+        AllowDrop="True">
+  <Window.Resources>
+    <ResourceDictionary Source="/Forge3D.Revit;component/UI/Theme.xaml"/>
+  </Window.Resources>
+  <Window.Style>
+    <StaticResource ResourceKey="Forge3DWindow"/>
+  </Window.Style>
+  <DockPanel Margin="16">
+    <StackPanel DockPanel.Dock="Top">
+      <TextBlock Style="{StaticResource Title}" Text="Converter modelo 3D em família paramétrica"/>
+      <TextBlock Style="{StaticResource Hint}"
+                 Text="SketchUp, 3ds Max, FBX, 3DS, OBJ, STL, GLB/GLTF, DAE, 3MF, STEP, Rhino e SAT. Arraste o arquivo para esta janela ou clique em Procurar."/>
+      <Grid Margin="0,12,0,0">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="Auto"/>
+          <ColumnDefinition Width="*"/>
+          <ColumnDefinition Width="Auto"/>
+        </Grid.ColumnDefinitions>
+        <TextBlock Style="{StaticResource Label}" Text="Arquivo"/>
+        <TextBox x:Name="FileBox" Grid.Column="1"/>
+        <Button x:Name="BrowseButton" Grid.Column="2" Content="Procurar…"/>
+      </Grid>
+      <Grid Margin="0,8,0,0">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="Auto"/>
+          <ColumnDefinition Width="2*"/>
+          <ColumnDefinition Width="Auto"/>
+          <ColumnDefinition Width="2*"/>
+          <ColumnDefinition Width="Auto"/>
+          <ColumnDefinition Width="2*"/>
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+          <RowDefinition/>
+          <RowDefinition Height="6"/>
+          <RowDefinition/>
+        </Grid.RowDefinitions>
+        <TextBlock Style="{StaticResource Label}" Text="Nível"/>
+        <ComboBox x:Name="LevelBox" Grid.Column="1" DisplayMemberPath="Label" SelectedValuePath="Value" Margin="0,0,12,0"/>
+        <TextBlock Style="{StaticResource Label}" Grid.Column="2" Text="Categoria"/>
+        <ComboBox x:Name="CategoryBox" Grid.Column="3" DisplayMemberPath="Label" SelectedValuePath="Value" Margin="0,0,12,0"/>
+        <TextBlock Style="{StaticResource Label}" Grid.Column="4" Text="Nome da família"/>
+        <TextBox x:Name="NameBox" Grid.Column="5"/>
+        <TextBlock Style="{StaticResource Label}" Grid.Row="2" Text="Unidade"/>
+        <ComboBox x:Name="UnitsBox" Grid.Row="2" Grid.Column="1" DisplayMemberPath="Label" SelectedValuePath="Value" Margin="0,0,12,0"/>
+        <TextBlock Style="{StaticResource Label}" Grid.Row="2" Grid.Column="2" Text="Eixo vertical"/>
+        <ComboBox x:Name="UpBox" Grid.Row="2" Grid.Column="3" DisplayMemberPath="Label" SelectedValuePath="Value" Margin="0,0,12,0"/>
+        <Expander Grid.Row="2" Grid.Column="4" Grid.ColumnSpan="2" Header="Opções avançadas" x:Name="AdvancedExpander">
+          <Grid Margin="0,6,0,0">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="Auto"/>
+              <ColumnDefinition Width="70"/>
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+              <RowDefinition/>
+              <RowDefinition/>
+              <RowDefinition/>
+            </Grid.RowDefinitions>
+            <TextBlock Style="{StaticResource Label}" Text="Tolerância de aproximação (mm)"/>
+            <TextBox x:Name="FitTolBox" Grid.Column="1" Text="1"/>
+            <TextBlock Style="{StaticResource Label}" Grid.Row="1" Text="Máx. triângulos em formas livres"/>
+            <TextBox x:Name="MaxFacesBox" Grid.Row="1" Grid.Column="1" Text="15000"/>
+            <TextBlock Style="{StaticResource Label}" Grid.Row="2" Text="Espessura de superfícies abertas (mm)"/>
+            <TextBox x:Name="SheetBox" Grid.Row="2" Grid.Column="1" Text="3"/>
+          </Grid>
+        </Expander>
+      </Grid>
+    </StackPanel>
+
+    <DockPanel DockPanel.Dock="Bottom" Margin="0,12,0,0" LastChildFill="False">
+      <Button x:Name="AnalyzeButton" DockPanel.Dock="Left" Content="Analisar" Margin="0" Style="{StaticResource Primary}"/>
+      <Button x:Name="CancelButton" DockPanel.Dock="Left" Content="Cancelar análise" Visibility="Collapsed"/>
+      <Button x:Name="CloseButton" DockPanel.Dock="Right" Content="Fechar" IsCancel="True"/>
+      <Button x:Name="BuildButton" DockPanel.Dock="Right" Content="Criar família" IsEnabled="False" Style="{StaticResource Primary}"/>
+    </DockPanel>
+    <StackPanel DockPanel.Dock="Bottom" Margin="0,10,0,0">
+      <ProgressBar x:Name="Progress" Height="6" Minimum="0" Maximum="100" Visibility="Hidden"/>
+      <TextBlock x:Name="StatusText" Style="{StaticResource Hint}" Margin="0,4,0,0"/>
+    </StackPanel>
+
+    <Grid Margin="0,12,0,0">
+      <Border x:Name="EmptyState" BorderBrush="{StaticResource Line}" BorderThickness="1" Background="{StaticResource Panel}">
+        <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" Style="{StaticResource Hint}"
+                   Text="Escolha um arquivo e clique em Analisar. A prévia e os parâmetros aparecem aqui."/>
+      </Border>
+      <local:ResultsPanel x:Name="Results" Visibility="Collapsed"/>
+    </Grid>
+  </DockPanel>
+</Window>

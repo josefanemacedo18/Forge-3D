@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <PlatformTarget>x64</PlatformTarget>
+    <RootNamespace>Forge3D.Revit</RootNamespace>
+    <AssemblyName>Forge3D.Revit</AssemblyName>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <SatelliteResourceLanguages>pt-BR</SatelliteResourceLanguages>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Assemblies de referência da API do Revit 2027 (somente compilação; o Revit fornece os reais). -->
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="2027.3.0" PrivateAssets="all" ExcludeAssets="runtime" />
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" Version="2027.3.0" PrivateAssets="all" ExcludeAssets="runtime" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Forge3D.Core\Forge3D.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Forge3D.addin" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Specs de teste usados pelo comando Diagnóstico. -->
+    <None Include="..\Forge3D.Core.Tests\Fixtures\*.json" Link="diagnostico\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Scripts dos exportadores (3ds Max e SketchUp). -->
+    <None Include="..\..\exporters\3dsmax\forge3d_export.ms" Link="exporters\forge3d_export.ms" CopyToOutputDirectory="PreserveNewest" Condition="Exists('..\..\exporters\3dsmax\forge3d_export.ms')" />
+    <None Include="..\..\exporters\sketchup\forge3d_export.rb" Link="exporters\forge3d_export.rb" CopyToOutputDirectory="PreserveNewest" Condition="Exists('..\..\exporters\sketchup\forge3d_export.rb')" />
+  </ItemGroup>
+</Project>

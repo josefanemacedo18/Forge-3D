@@ -190,6 +190,15 @@ class Server:
         os.replace(tmp, out)
         return str(out)
 
+    def _write_preview(self, spec: dict, spec_path: str) -> str | None:
+        from .spec import evaluate
+
+        try:
+            return evaluate.export_preview_obj(spec, str(Path(spec_path).with_suffix(".preview.obj")))
+        except Exception as exc:  # a prévia é opcional
+            log.warning("prévia não gerada: %s", exc)
+            return None
+
     def _convert_mesh(self, mid: Any, params: dict) -> dict:
         from .pipeline import ConvertOptions, convert_mesh_file
 
@@ -203,7 +212,7 @@ class Server:
             compute_fidelity=bool(params.get("computeFidelity", True)))
         res = convert_mesh_file(path, opts, progress=lambda f, m: self.progress(mid, f, m), cancel=self._cancel.is_set)
         spec_path = self._write_spec(res.spec, params.get("output"))
-        return {"specPath": spec_path, "summary": res.summary}
+        return {"specPath": spec_path, "previewPath": self._write_preview(res.spec, spec_path), "summary": res.summary}
 
     def _analyze_image(self, mid: Any, params: dict) -> dict:
         from .image.pipeline_image import ImageOptions, analyze_image
@@ -224,7 +233,7 @@ class Server:
         res = convert_image(path, opts, progress=lambda f, m: self.progress(mid, f, m), cancel=self._cancel.is_set,
                             work_dir=params.get("workDir"))
         spec_path = self._write_spec(res.spec, params.get("output"))
-        return {"specPath": spec_path, "summary": res.summary}
+        return {"specPath": spec_path, "previewPath": self._write_preview(res.spec, spec_path), "summary": res.summary}
 
     # -- laço principal -------------------------------------------------------------
     def serve(self, in_stream) -> None:
