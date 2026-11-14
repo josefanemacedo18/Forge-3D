@@ -1,6 +1,6 @@
 # Forge 3D
 
-Plugin para **Revit 2027** que converte modelos 3D (SketchUp, 3ds Max, OBJ, FBX, STL, GLB…) e **imagens** em **famílias paramétricas do Revit**.
+Plugin para **Revit 2027** que converte modelos 3D (SketchUp, 3ds Max, FBX, OBJ, STL, GLB, STEP, Rhino…) e **fotos de objetos** em **famílias paramétricas do Revit**, com planos de referência, cotas rotuladas, fórmulas e parâmetros em português. Funciona offline.
 
 ## Como funciona
 
@@ -8,31 +8,50 @@ Plugin para **Revit 2027** que converte modelos 3D (SketchUp, 3ds Max, OBJ, FBX,
 Arquivo 3D / imagem ──► Motor Forge 3D (Python, local) ──► FamilySpec (JSON) ──► Plugin Revit (C#) ──► Família .rfa
 ```
 
-1. **Leitura** — SketchUp e STEP/Rhino/OBJ/STL pelo próprio Revit; `.max`, `.fbx` e `.3ds` pelo 3ds Max em modo lote; GLB, PLY, DAE e 3MF direto pelo motor.
-2. **Decomposição** — cada peça é reconhecida como caixa, cilindro, extrusão, revolução ou forma livre (malhas soldadas são decompostas em caixas e fatias).
-3. **Planejamento paramétrico** — planos de referência em árvore, cotas rotuladas e fórmulas, com parâmetros em português (Largura, Altura, Espessura do Tampo, Seção da Perna, Recuo X…).
-4. **Construção no Revit** — o plugin cria a família com planos, cotas, rótulos, fórmulas, sólidos travados nos planos e materiais, e roda um **teste de flexão** antes de salvar.
+1. **Leitura**: SketchUp, STEP, Rhino e SAT pelo próprio Revit; `.max`, `.fbx` e `.3ds` pelo 3ds Max em modo lote; OBJ, STL, PLY, GLB, DAE e 3MF direto no motor.
+2. **Decomposição**: cada peça vira caixa, cilindro, extrusão (retas e arcos), revolução ou forma livre. Malhas soldadas são separadas em caixas e fatias.
+3. **Planejamento paramétrico**: planos em árvore e parâmetros com significado (Largura, Altura, Espessura do Tampo, Seção da Perna, Recuo X, Diâmetro do Furo…).
+4. **Construção no Revit**: planos, cotas, rótulos, fórmulas, faces travadas, materiais e tipos, com **teste de flexão** antes de salvar.
 
-## Níveis de parametrização
-
-| Nível | O que significa |
+| Nível | Resultado |
 |---|---|
-| **C** | Peças reconhecidas com parâmetros com significado: espessuras e recuos constantes, alturas próprias, diâmetros. |
-| **B** | Tudo acompanha o envelope (Largura/Profundidade/Altura) proporcionalmente; formas livres ficam fixas. |
-| **A** | Geometria fixa, fiel ao original. |
+| **C** | Parâmetros com significado: espessuras e recuos constantes, alturas próprias, diâmetros |
+| **B** | Tudo acompanha o envelope proporcionalmente |
+| **A** | Geometria fixa e fiel |
 
-Quando o Nível C não é possível para todo o objeto, o plugin **pergunta** se pode gerar em Nível B, mostrando quais peças impediram o Nível C e por quê.
+Quando o Nível C não é possível, o plugin **pergunta** se pode gerar em Nível B e mostra o motivo, peça por peça.
 
-## Estrutura do repositório
+**Imagem → família:** revolução pela silhueta (vasos, postes, luminárias), extrusão da silhueta (painéis, recortes) e reconstrução 3D por IA (TripoSR, opcional, roda na GPU NVIDIA ou na CPU).
+
+## Instalação
+
+Baixe o pacote **Forge3D-Revit2027** (artefato da última execução do GitHub Actions), feche o Revit e rode **Instalar.cmd**. Detalhes em [docs/GUIA-DO-USUARIO.md](docs/GUIA-DO-USUARIO.md).
+
+Depois de instalar, rode **Forge 3D › Diagnóstico** no Revit: ele constrói famílias de teste e gera um relatório completo.
+
+## Desenvolvimento
 
 | Pasta | Conteúdo |
 |---|---|
-| `engine/` | Motor Python: leitura, decomposição, planejamento, imagem → 3D, servidor local |
-| `src/` | Plugin do Revit 2027 (C#/.NET 10) |
-| `exporters/` | Scripts de exportação do 3ds Max (MAXScript) e do SketchUp (Ruby) |
-| `installer/` | Instalação no Windows |
-| `docs/` | Arquitetura, formato FamilySpec e guia do usuário |
+| `engine/` | Motor Python (leitura, decomposição, planejamento, imagem, servidor local) |
+| `src/` | Plugin do Revit 2027 (C#/.NET 10, WPF) e testes |
+| `exporters/` | Exportadores do 3ds Max (MAXScript) e do SketchUp (Ruby) |
+| `installer/` | Instalação, desinstalação e montagem do pacote |
+| `docs/` | [Guia do usuário](docs/GUIA-DO-USUARIO.md), [Arquitetura](docs/ARQUITETURA.md), [FamilySpec](docs/FAMILYSPEC.md) |
+
+```bash
+# Motor
+cd engine && uv venv .venv --python 3.12 && uv pip install -r requirements.txt pytest && .venv/bin/python -m pytest
+```
+
+```bash
+# Plugin e pacote (requer .NET 10 SDK)
+pwsh installer/package.ps1
+```
 
 ## Estado
 
-Em desenvolvimento. Veja `docs/` para a arquitetura e o roteiro.
+- **Motor:** 44 testes (inclui a reconstrução real por IA quando `FORGE3D_TEST_AI` está definido).
+- **Núcleo C#:** 38 testes, incluindo integração com o motor real.
+- **Plugin:** compila contra a API do Revit 2027 sem erros nem avisos. A validação dentro do Revit é feita pelo comando **Diagnóstico**.
+- **Limites desta versão:** os raios dos perfis de revolução e as formas livres ficam fixos (a altura das revoluções é paramétrica). Detalhes em [docs/ARQUITETURA.md](docs/ARQUITETURA.md).
