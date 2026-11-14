@@ -199,6 +199,28 @@ public static class SpecValidator
             if (s.Profile.Any(seg => seg.Start[0] < -0.01 || seg.End[0] < -0.01))
                 errors.Add($"Revolução '{s.Id}': perfil cruza o eixo (raio negativo).");
             ValidateLoop(s.Profile, $"Revolução '{s.Id}'", errors);
+            var (uAxis, _) = SpecMath.Perpendicular(s.Axis);
+            foreach (var al in s.Alignments ?? new())
+            {
+                if (al.Loop != 0 || al.Segment < 0 || al.Segment >= s.Profile.Count)
+                {
+                    errors.Add($"Revolução '{s.Id}': alinhamento aponta para segmento inexistente.");
+                    continue;
+                }
+                var seg = s.Profile[al.Segment];
+                if (seg.IsArc || Math.Abs(seg.Start[0] - seg.End[0]) > 0.05)
+                {
+                    errors.Add($"Revolução '{s.Id}': só trechos verticais do perfil podem ser travados.");
+                    continue;
+                }
+                if (!axisOf.TryGetValue(al.Plane, out var pax) || pax != uAxis)
+                {
+                    errors.Add($"Revolução '{s.Id}': plano radial '{al.Plane}' inválido.");
+                    continue;
+                }
+                if (Math.Abs(s.Center.U.Position + seg.Start[0] - original[al.Plane]) > 0.05)
+                    errors.Add($"Revolução '{s.Id}': trecho radial não está sobre o plano '{al.Plane}'.");
+            }
         }
     }
 

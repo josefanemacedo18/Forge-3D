@@ -15,7 +15,7 @@ CASES = {
     "cadeira": (synth.chair, "C"),
     "armario": (synth.cabinet, "C"),
     "prateleira": (lambda: [synth.shelf_with_holes()], "C"),
-    "vaso": (lambda: [synth.vase()], "B"),
+    "vaso": (lambda: [synth.vase()], "C"),
     "poste": (synth.lamp_post, "B"),
     "blob": (lambda: [synth.blob()], "B"),
 }
@@ -129,3 +129,16 @@ def test_rounded_tabletop_follows_width(tmp_path):
     wide = evaluate.build_mesh(spec, {p["Largura"]["id"]: 2000.0})
     assert wide.bounds[1][0] - wide.bounds[0][0] == pytest.approx(2000, abs=0.5)
     assert spec["report"]["flex"]["ok"]
+
+
+def test_vase_diameter_is_parametric(tmp_path):
+    path = write(tmp_path, "vaso", [synth.vase()])
+    spec = convert_mesh_file(path, ConvertOptions(level="C")).spec
+    validate.validate(spec)
+    rev = next(s for s in spec["solids"] if s["kind"] == "revolution")
+    assert len(rev["alignments"]) == 3  # barriga, boca e base travadas
+    p = {q["name"]: q for q in spec["parameters"]}
+    assert "Diâmetro" in p and "Altura" in p
+    big = evaluate.build_mesh(spec, {p["Diâmetro"]["id"]: 300.0, p["Altura"]["id"]: 500.0})
+    ext = big.extents
+    assert ext[0] == pytest.approx(300, abs=1) and ext[2] == pytest.approx(500, abs=1)

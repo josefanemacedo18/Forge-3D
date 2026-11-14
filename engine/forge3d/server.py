@@ -24,6 +24,7 @@ import logging
 import os
 import sys
 import threading
+import time
 import traceback
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -50,9 +51,78 @@ def _setup_logging(log_dir: str | None) -> None:
     log.setLevel(logging.INFO)
 
 
+def _windows_pipe_lines(fd: int):
+    """Linhas do stdin no Windows sem deixar leitura bloqueante pendente.
+
+    No Windows, uma leitura síncrona pendente num pipe serializa as demais
+    operações no mesmo handle: a inicialização de DLLs (NumPy/OpenBLAS e
+    outras) chama GetFileType nos handles padrão e ficaria bloqueada até
+    chegar outra mensagem — a conversão travaria. Por isso o pipe é
+    consultado com PeekNamedPipe (não bloqueia) e só é lido quando há dados.
+    Retorna None se o stdin não for um pipe (ex.: console).
+    """
+    import _winapi
+    import msvcrt
+
+    handle = msvcrt.get_osfhandle(fd)
+    try:
+        _winapi.PeekNamedPipe(handle, 0)
+    except OSError:
+        return None
+
+    def gen():
+        buf = b""
+        idle = 0.002
+        while True:
+            try:
+                avail = _winapi.PeekNamedPipe(handle, 0)[0]
+            except OSError:
+                break  # o plugin fechou o pipe
+            if avail == 0:
+                time.sleep(idle)
+                idle = min(idle * 2, 0.05)
+                continue
+            idle = 0.002
+            data, err = _winapi.ReadFile(handle, min(avail, 1 << 20))
+            if not data:
+                if err:
+                    break
+                continue
+            buf += data
+            while True:
+                nl = buf.find(b"\n")
+                if nl < 0:
+                    break
+                line, buf = buf[:nl], buf[nl + 1:]
+                yield line.decode("utf-8", "replace")
+        if buf.strip():
+            yield buf.decode("utf-8", "replace")
+
+    return gen()
+
+
+def _warm_up() -> None:
+    """Carrega as bibliotecas nativas antes de atender pedidos (mais rápido e
+    evita carregar DLLs pela primeira vez durante uma conversão)."""
+    for name in ("numpy", "scipy.spatial", "scipy.sparse.csgraph", "scipy.ndimage", "shapely", "trimesh",
+                 "skimage.measure", "skimage.filters", "manifold3d", "fast_simplification", "PIL.Image",
+                 "jsonschema", "collada"):
+        try:
+            __import__(name)
+        except Exception as exc:  # módulo opcional ausente: o erro aparece quando for usado
+            log.warning("pré-carga de %s falhou: %s", name, exc)
+    try:
+        import rtree.index
+
+        rtree.index.Index()  # carrega a biblioteca nativa do rtree
+    except Exception as exc:
+        log.warning("pré-carga do rtree falhou: %s", exc)
+
+
 class Server:
-    def __init__(self, out_stream):
+    def __init__(self, out_stream, log_dir: Path | None = None):
         self._out = out_stream
+        self._log_dir = log_dir
         self._lock = threading.Lock()
         self._job: threading.Thread | None = None
         self._job_id: Any = None
@@ -134,6 +204,16 @@ class Server:
             self.error(mid, ERR_INTERNAL, f"Erro interno do motor: {exc}", {"trace": traceback.format_exc()})
 
     def _run_job(self, mid: Any, fn: Callable, params: dict) -> None:
+        watchdog = None
+        try:
+            import faulthandler
+
+            if self._log_dir is not None:
+                watchdog = open(self._log_dir / "motor-travamento.log", "w", encoding="utf-8")
+                # Se a conversão passar de 10 minutos, grava a pilha de todas as threads.
+                faulthandler.dump_traceback_later(600, repeat=False, file=watchdog)
+        except Exception:
+            watchdog = None
         try:
             log.info("início %s %s", fn.__name__, {k: v for k, v in params.items() if k != "spec"})
             result = fn(mid, params)
@@ -156,6 +236,14 @@ class Server:
                 self.error(mid, ERR_INTERNAL, f"Erro interno do motor: {exc}", {"trace": traceback.format_exc()})
         finally:
             self._job_id = None
+            if watchdog is not None:
+                try:
+                    import faulthandler
+
+                    faulthandler.cancel_dump_traceback_later()
+                    watchdog.close()
+                except Exception:
+                    pass
 
     # -- métodos ----------------------------------------------------------------------
     def _hardware(self, params: dict) -> dict:
@@ -237,7 +325,13 @@ class Server:
 
     # -- laço principal -------------------------------------------------------------
     def serve(self, in_stream) -> None:
-        for line in in_stream:
+        lines = None
+        if os.name == "nt":
+            try:
+                lines = _windows_pipe_lines(in_stream.fileno())
+            except Exception as exc:
+                log.warning("leitura por PeekNamedPipe indisponível: %s", exc)
+        for line in (lines if lines is not None else in_stream):
             self.handle_line(line)
             if not self._running:
                 break
@@ -285,7 +379,9 @@ def run(log_dir: str | None = None) -> None:
         sys.stdin.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
     except Exception:
         pass
-    server = Server(out)
+    base = Path(log_dir) if log_dir else (Path(os.environ.get("LOCALAPPDATA", Path.home())) / "Forge3D" / "logs")
+    server = Server(out, base if base.is_dir() else None)
+    _warm_up()
     log.info("motor %s iniciado (python %s)", __version__, sys.version.split()[0])
     server.serve(sys.stdin)
     log.info("motor encerrado")

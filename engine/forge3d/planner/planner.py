@@ -240,6 +240,168 @@ def _orthogonal_profile(loops: list[list[Segment]], tol: float = 1e-3) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# revoluções: raios paramétricos
+
+RADIAL_STEP = 2.0  # mm — trecho vertical inserido nos pontos-chave do perfil
+
+
+def _arc_geom(sg: Segment):
+    import math as _m
+
+    from ..spec.evaluate import _arc_sweep, circle_from_3pts
+
+    a = np.asarray(sg.start, float)
+    m = np.asarray(sg.mid, float)
+    b = np.asarray(sg.end, float)
+    c, r = circle_from_3pts(a, m, b)
+    if c is None:
+        return None
+    a0 = _m.atan2(a[1] - c[1], a[0] - c[0])
+    am = _m.atan2(m[1] - c[1], m[0] - c[0])
+    a1 = _m.atan2(b[1] - c[1], b[0] - c[0])
+    return c, r, a0, _arc_sweep(a0, am, a1)
+
+
+def _arc_point(c, r, ang):
+    import math as _m
+
+    return (float(c[0] + r * _m.cos(ang)), float(c[1] + r * _m.sin(ang)))
+
+
+def _revolution_keys(p: Revolution) -> list[tuple[float, float, str]]:
+    """Pontos-chave do perfil (r, h, tipo): raio máximo, boca (topo) e base."""
+    import math as _m
+
+    prof = p.profile
+    keys: list[tuple[float, float, str]] = []
+    # Raio máximo: vértices e interior dos arcos.
+    best = (-1.0, 0.0)
+    for sg in prof:
+        for pt in (sg.start, sg.end):
+            if pt[0] > best[0] + 1e-6:
+                best = (pt[0], pt[1])
+        if sg.kind == "arc":
+            g = _arc_geom(sg)
+            if g is None:
+                continue
+            c, r, a0, sweep = g
+            # O arco passa pelo ângulo 0 (ponto mais externo do círculo)?
+            for k in (-1, 0, 1):
+                ang = 2 * _m.pi * k
+                t = (ang - a0) / sweep if sweep else -1
+                if 0 < t < 1 and c[0] + r > best[0] + 1e-6:
+                    best = (float(c[0] + r), float(c[1]))
+    if best[0] > MERGE_TOL:
+        keys.append((best[0], best[1], "max"))
+    # Cantos externos do topo e da base (tampas planas).
+    for h, kind, flat in ((p.h1, "topo", p.flat_top), (p.h0, "base", p.flat_bottom)):
+        if not flat:
+            continue
+        rs = [pt[0] for sg in prof if sg.kind == "line" for pt in (sg.start, sg.end)
+              if abs(sg.start[1] - h) <= 0.05 and abs(sg.end[1] - h) <= 0.05]
+        if rs and max(rs) > MERGE_TOL:
+            keys.append((max(rs), h, kind))
+    # Remove repetidos (mesmo ponto).
+    out: list[tuple[float, float, str]] = []
+    for k in keys:
+        if all(abs(k[0] - o[0]) > 0.5 or abs(k[1] - o[1]) > 0.5 for o in out):
+            out.append(k)
+    return out
+
+
+def _with_points(sg: Segment, start=None, end=None) -> Segment:
+    return Segment(sg.kind, start if start is not None else sg.start, end if end is not None else sg.end,
+                   sg.mid, sg.center, sg.radius)
+
+
+def _insert_radial(profile: list[Segment], key: tuple[float, float, str], r_final: float, h_lo: float,
+                   h_hi: float) -> tuple[list[Segment], int] | None:
+    """Garante um trecho vertical no ponto-chave e devolve (perfil, índice do trecho).
+
+    Se já existe uma reta vertical passando pelo ponto, ela é usada. Senão o
+    vértice (ou o ponto interno do arco, que é dividido) dá lugar a um trecho
+    vertical de 2 mm — diferença de forma imperceptível.
+    """
+    r_k, h_k, kind = key
+    L = RADIAL_STEP
+    # 1) Reta vertical existente.
+    for i, sg in enumerate(profile):
+        if sg.kind == "line" and abs(sg.start[0] - r_k) <= 0.05 and abs(sg.end[0] - r_k) <= 0.05:
+            lo, hi = sorted((sg.start[1], sg.end[1]))
+            if lo - 0.05 <= h_k <= hi + 0.05 and hi - lo >= MIN_RADIAL_LINE:
+                return [_snap_r(x, r_k, r_final) for x in profile], i
+    prof = list(profile)
+    # 2) Ponto interno de arco: divide o arco.
+    vertex = None
+    for i, sg in enumerate(prof):
+        if abs(sg.end[0] - r_k) <= 0.05 and abs(sg.end[1] - h_k) <= 0.05:
+            vertex = i
+            break
+    if vertex is None:
+        for i, sg in enumerate(prof):
+            if sg.kind != "arc":
+                continue
+            g = _arc_geom(sg)
+            if g is None:
+                continue
+            c, r, a0, sweep = g
+            import math as _m
+
+            ang = _m.atan2(h_k - c[1], r_k - c[0])
+            for k in (-1, 0, 1):
+                t = (ang + 2 * _m.pi * k - a0) / sweep if sweep else -1
+                if 0.02 < t < 0.98:
+                    p_mid = (r_k, h_k)
+                    m1 = _arc_point(c, r, a0 + sweep * t / 2)
+                    m2 = _arc_point(c, r, a0 + sweep * (t + (1 - t) / 2))
+                    first = Segment("arc", sg.start, p_mid, m1, sg.center, sg.radius)
+                    second = Segment("arc", p_mid, sg.end, m2, sg.center, sg.radius)
+                    prof[i:i + 1] = [first, second]
+                    vertex = i
+                    break
+            if vertex is not None:
+                break
+    if vertex is None:
+        return None
+    n = len(prof)
+    a = prof[vertex]
+    b = prof[(vertex + 1) % n]
+    going_down = a.start[1] > h_k + 1e-6 or (abs(a.start[1] - h_k) <= 1e-6 and b.end[1] < h_k)
+    if kind == "topo":
+        p_top, p_bot = (r_final, h_k), (r_final, h_k - L)
+    elif kind == "base":
+        p_top, p_bot = (r_final, h_k + L), (r_final, h_k)
+    else:
+        p_top, p_bot = (r_final, h_k + L / 2), (r_final, h_k - L / 2)
+    first_pt, second_pt = (p_top, p_bot) if going_down else (p_bot, p_top)
+    new_a = _with_points(a, end=first_pt)
+    new_b = _with_points(b, start=second_pt)
+    vertical = Segment("line", first_pt, second_pt)
+    if new_a.length() < MIN_SEGMENT_MM or new_b.length() < MIN_SEGMENT_MM:
+        return None
+    if vertex + 1 < n:
+        out = prof[:vertex] + [new_a, vertical, new_b] + prof[vertex + 2:]
+        idx = vertex + 1
+    else:  # o vértice fecha o laço (fim do último = início do primeiro)
+        out = [new_b] + prof[1:vertex] + [new_a, vertical]
+        idx = len(out) - 1
+    return out, idx
+
+
+MIN_RADIAL_LINE = 1.0
+MIN_SEGMENT_MM = 1.0
+
+
+def _snap_r(sg: Segment, r_old: float, r_new: float) -> Segment:
+    def sp(pt):
+        if pt is None:
+            return None
+        return (r_new, pt[1]) if abs(pt[0] - r_old) <= 0.05 else pt
+
+    return Segment(sg.kind, sp(sg.start), sp(sg.end), sp(sg.mid) if sg.kind == "arc" else sg.mid, sg.center, sg.radius)
+
+
+# ---------------------------------------------------------------------------
 # planejador
 
 
@@ -309,6 +471,8 @@ class Planner:
                 u, v = PERP[p.axis]
                 refs[u].append(Ref(u, p.center[0], i, "center", False))
                 refs[v].append(Ref(v, p.center[1], i, "center", False))
+                for r_k, _, _ in self._radial_keys(p):
+                    refs[u].append(Ref(u, p.center[0] + r_k, i, "radial", True))
                 if p.flat_bottom:
                     refs[p.axis].append(Ref(p.axis, p.h0, i, "lo", True))
                 if p.flat_top:
@@ -415,7 +579,7 @@ class Planner:
             best = None
             planes = [lv for lv in levels if lv.resolved and lv.is_plane]
             for lv in levels:
-                if lv.resolved:
+                if lv.resolved or (lv.refs and all(r.role == "radial" for r in lv.refs)):
                     continue
                 for cand in planes:
                     gap = abs(lv.value - cand.value)
@@ -585,6 +749,16 @@ class Planner:
             out.append(p)
         return out
 
+    def _radial_keys(self, p: Revolution) -> list[tuple[float, float, str]]:
+        """Pontos-chave radiais de uma revolução vertical centrada (Nível C)."""
+        if getattr(self, "_mode", "C") != "C" or p.axis != "z":
+            return []
+        if abs(p.center[0]) > MERGE_TOL or abs(p.center[1]) > MERGE_TOL:
+            return []
+        if p.h1 - p.h0 < 20 * RADIAL_STEP:
+            return []
+        return _revolution_keys(p)
+
     def _thin_for_constraints(self, p: Primitive) -> bool:
         b = p.bounds()
         ext = b[1] - b[0]
@@ -595,6 +769,7 @@ class Planner:
         return False
 
     def _emit_parametric(self, prims, roles, materials, mat_param, level: str) -> dict:
+        self._mode = level
         # Peças finas demais viram geometria fixa.
         for i, p in enumerate(prims):
             if self._thin_for_constraints(p):
@@ -602,8 +777,9 @@ class Planner:
         self.prims = prims
         # Planta redonda: um cilindro centrado com o diâmetro do envelope.
         self.round_footprint = abs(self.W - self.D) <= MERGE_TOL and any(
-            isinstance(p, Cylinder) and p.axis == "z" and abs(p.diameter - self.W) <= MERGE_TOL
-            and abs(p.center[0]) <= MERGE_TOL and abs(p.center[1]) <= MERGE_TOL for p in prims)
+            ((isinstance(p, Cylinder) and abs(p.diameter - self.W) <= MERGE_TOL)
+             or (isinstance(p, Revolution) and level == "C" and abs(2 * p.max_radius() - self.W) <= MERGE_TOL))
+            and p.axis == "z" and abs(p.center[0]) <= MERGE_TOL and abs(p.center[1]) <= MERGE_TOL for p in prims)
         refs = self._collect_refs()
         env = self._envelope_params(bool(refs["x"]), bool(refs["y"]))
         levels = {ax: self._build_levels(ax, refs[ax]) for ax in ("x", "y", "z")}
@@ -735,9 +911,27 @@ class Planner:
                     use(a)
                     use(b)
                     ext_lv = [a, b]
-                notes.append("revolução: altura paramétrica, perfil (raios) fixo" if ext_lv else "revolução: forma fixa")
-                s = dict(base, kind="revolution", axis=p.axis, center={"u": cu, "v": cv}, profile=p.profile,
-                         range=[p.h0, p.h1], extent=ext_lv)
+                profile = list(p.profile)
+                radial: list[tuple[int, Lvl]] = []
+                for key in self._radial_keys(p):
+                    lv_r = lvl(i, u, "radial", p.center[0] + key[0])
+                    res = _insert_radial(profile, key, lv_r.value - p.center[0], p.h0, p.h1)
+                    if res is None:
+                        continue
+                    new_profile, idx = res
+                    # Índices de trechos já travados mudam se a inserção veio antes.
+                    shift = len(new_profile) - len(profile)
+                    radial = [(j + shift if j >= idx and shift else j, lvv) for j, lvv in radial]
+                    profile = new_profile
+                    use(lv_r)
+                    radial.append((idx, lv_r))
+                if radial and ext_lv:
+                    part_level = "C"
+                    notes.append("revolução: altura e diâmetros paramétricos (pontos-chave do perfil travados)")
+                else:
+                    notes.append("revolução: altura paramétrica, perfil (raios) fixo" if ext_lv else "revolução: forma fixa")
+                s = dict(base, kind="revolution", axis=p.axis, center={"u": cu, "v": cv}, profile=profile,
+                         range=[p.h0, p.h1], extent=ext_lv, _radial=radial)
                 solids_out.append(s)
             elif isinstance(p, FramedExtrusion):
                 s = dict(base, kind="extrusion", frame={"origin": list(p.origin), "xdir": list(p.xdir), "ydir": list(p.ydir)},
@@ -824,6 +1018,9 @@ class Planner:
                 s["frame"] = {k: [round(float(c), 6) for c in val] for k, val in s["frame"].items()}
             elif s["kind"] == "revolution":
                 s["center"] = {"u": anchor(s["center"]["u"]), "v": anchor(s["center"]["v"])}
+                radial = s.pop("_radial", [])
+                if radial:
+                    s["alignments"] = [{"loop": 0, "segment": j, "plane": pid(lv)} for j, lv in radial]
                 prof = s["profile"]
                 if s.get("extent"):
                     a, b = s["extent"]

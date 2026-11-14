@@ -55,7 +55,9 @@ class Client:
         try:
             line = self.lines.get(timeout=timeout)
         except queue.Empty:
-            raise TimeoutError("o motor não respondeu; stderr:\n" + "".join(self.stderr[-30:])) from None
+            dump = self.log_dir / "motor-travamento.log"
+            extra = dump.read_text(encoding="utf-8", errors="replace") if dump.exists() else ""
+            raise TimeoutError("o motor não respondeu; stderr:\n" + "".join(self.stderr[-30:]) + "\n" + extra) from None
         if line is None:
             raise RuntimeError("o motor encerrou; stderr:\n" + "".join(self.stderr[-30:]))
         return json.loads(line)

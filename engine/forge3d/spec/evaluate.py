@@ -195,6 +195,23 @@ def evaluate_solids(spec: dict, overrides: dict[str, float] | None = None, build
             if s.get("extent"):
                 h_shift_lo = planes[s["extent"][0]] - original[s["extent"][0]]
                 h_shift_hi = planes[s["extent"][1]] - original[s["extent"][1]]
+            if s.get("alignments"):
+                # Trechos radiais travados acompanham seus planos (e os vértices
+                # ligados a eles), como no esboço do Revit.
+                shifts = []
+                for al in s["alignments"]:
+                    seg = prof[al["segment"]]
+                    shifts.append((seg["start"][0], planes[al["plane"]] - original[al["plane"]]))
+
+                def _shift_pt(pt):
+                    for r_old, d in shifts:
+                        if abs(pt[0] - r_old) <= 0.05:
+                            return [pt[0] + d, pt[1]]
+                    return pt
+
+                prof = [dict(seg, start=_shift_pt(seg["start"]), end=_shift_pt(seg["end"])) for seg in prof]
+                if any(seg["start"][0] < -0.01 for seg in prof):
+                    problems.append(f"revolução '{s['id']}' com raio negativo após flexão")
             pts = discretize_loop(prof)
             # Alongamento linear do perfil entre as faces de topo e base (o
             # Revit alonga a revolução quando as faces planas são movidas).

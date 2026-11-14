@@ -286,6 +286,21 @@ def semantic_errors(spec: dict) -> list[str]:
                 if any(seg["start"][0] < -POSITION_TOL or seg["end"][0] < -POSITION_TOL for seg in prof):
                     errors.append(f"Revolução '{sid}': perfil cruza o eixo (raio negativo).")
                 errors += _loop_errors(prof, f"Revolução '{sid}'")
+                u_ax, _ = PERP_AXES[s["axis"]]
+                cu = s["center"]["u"]["position"]
+                for al in s.get("alignments", []):
+                    if al["loop"] != 0 or not 0 <= al["segment"] < len(prof):
+                        errors.append(f"Revolução '{sid}': alinhamento aponta para segmento inexistente.")
+                        continue
+                    seg = prof[al["segment"]]
+                    if seg["type"] != "line" or abs(seg["start"][0] - seg["end"][0]) > 0.05:
+                        errors.append(f"Revolução '{sid}': só trechos verticais do perfil podem ser travados.")
+                        continue
+                    if axis_of.get(al["plane"]) != u_ax:
+                        errors.append(f"Revolução '{sid}': plano radial '{al['plane']}' inválido.")
+                        continue
+                    if abs(cu + seg["start"][0] - original[al["plane"]]) > 0.05:
+                        errors.append(f"Revolução '{sid}': trecho radial não está sobre o plano '{al['plane']}'.")
         elif kind == "extrusion":
             for i, loop in enumerate(s["loops"]):
                 errors += _loop_errors(loop, f"Extrusão '{sid}' laço {i}")

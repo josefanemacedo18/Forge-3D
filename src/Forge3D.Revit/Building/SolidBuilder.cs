@@ -194,8 +194,80 @@ internal sealed class SolidBuilder
             double rProbe = cap is null ? 0 : (cap.Start[0] + cap.End[0]) / 2;
             Align(s, e, axis, planeId, Mm.ToFt(h), Map(rProbe, h));
         }
+        // Raios: trechos verticais do perfil travados em planos radiais.
+        var view = axis == "z" ? _ctx.Front : _ctx.Plan;
+        foreach (var al in s.Alignments ?? new())
+        {
+            var seg = s.Profile![al.Segment];
+            AlignProfileLine(s, (Revolution)e, view, al.Plane, Map(seg.Start[0], seg.Start[1]), Map(seg.End[0], seg.End[1]));
+        }
         if (s.Center.U.Driver is not null || s.Center.V.Driver is not null)
             _ctx.Report.Fail(Constraints, s.Name, "posição da revolução fora do centro fica fixa nesta versão");
+    }
+
+    private static bool SameLine(Curve c, XYZ a, XYZ b)
+    {
+        if (c is not Line) return false;
+        double tol = Mm.ToFt(0.05);
+        var p = c.GetEndPoint(0);
+        var q = c.GetEndPoint(1);
+        return (p.DistanceTo(a) < tol && q.DistanceTo(b) < tol) || (p.DistanceTo(b) < tol && q.DistanceTo(a) < tol);
+    }
+
+    /// <summary>
+    /// Trava uma reta do esboço da revolução num plano de referência. Primeiro
+    /// pela referência da curva do esboço; se o Revit recusar, dentro do modo
+    /// de edição do esboço (como o usuário faria com a ferramenta Alinhar).
+    /// </summary>
+    private void AlignProfileLine(SolidSpec s, Revolution rev, View view, string planeId, XYZ a, XYZ b)
+    {
+        var label = $"{s.Name}: raio ↔ {PlaneLabel(planeId)}";
+        var r = Tx.Run(Doc, $"Forge 3D - travar raio {s.Name}", () =>
+        {
+            Curve? curve = null;
+            foreach (CurveArray loop in rev.Sketch.Profile)
+                foreach (Curve c in loop)
+                    if (SameLine(c, a, b)) curve = c;
+            if (curve?.Reference is null) throw new InvalidOperationException("reta do perfil não encontrada");
+            Doc.FamilyCreate.NewAlignment(view, _ctx.PlaneRef(planeId), curve.Reference);
+        });
+        if (r.Ok)
+        {
+            _ctx.Report.Ok(Constraints, label);
+            return;
+        }
+        Log.Info($"Raio de '{s.Name}' pela referência do esboço falhou: {r.ErrorText}");
+        try
+        {
+            using var scope = new SketchEditScope(Doc, "Forge 3D - perfil");
+            if (!scope.IsSketchEditingSupported(rev.Sketch.Id))
+            {
+                _ctx.Report.Fail(Constraints, label, r.ErrorText + " (edição de esboço indisponível)");
+                return;
+            }
+            scope.Start(rev.Sketch.Id);
+            var r2 = Tx.Run(Doc, $"Forge 3D - travar raio no esboço {s.Name}", () =>
+            {
+                var element = rev.Sketch.GetAllElements().Select(id => Doc.GetElement(id)).OfType<CurveElement>()
+                                  .FirstOrDefault(ce => SameLine(ce.GeometryCurve, a, b))
+                              ?? throw new InvalidOperationException("reta do esboço não encontrada");
+                Doc.FamilyCreate.NewAlignment(view, _ctx.PlaneRef(planeId), element.GeometryCurve.Reference);
+            });
+            if (r2.Ok)
+            {
+                scope.Commit(new FailureCollector());
+                _ctx.Report.Ok(Constraints, label, "no modo de edição do esboço");
+            }
+            else
+            {
+                if (scope.IsActive) scope.Cancel();
+                _ctx.Report.Fail(Constraints, label, r2.ErrorText);
+            }
+        }
+        catch (Exception ex)
+        {
+            _ctx.Report.Fail(Constraints, label, ex.Message);
+        }
     }
 
     private void BuildMesh(SolidSpec s)
