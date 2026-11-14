@@ -40,7 +40,7 @@ O relatório fica em `Documentos\Forge3D\Diagnostico_<data>.txt`. Se algo falhar
 1. Arraste o arquivo para a janela ou clique em **Procurar…**
 2. Escolha o **nível** (padrão: C), a **categoria** (Mobiliário, Luminárias, Vegetação…) e o **nome da família**.
 3. **Unidade** e **eixo vertical** ficam em "Automático". O Forge 3D lê o que o arquivo informa ou deduz pelo tamanho e pela forma do objeto. Se a prévia mostrar o objeto deitado ou com tamanho errado, ajuste aqui e analise de novo.
-   - **Tamanho real (mm)** — opcional. Modelos baixados da internet muitas vezes vêm em escala arbitrária (uma cadeira de 40 m, um vaso de 9 mm). Informe uma medida que você conhece (por exemplo, *Altura* = 750 para uma mesa) e o modelo é escalado por igual para bater com ela. Deixe vazio para usar a unidade do arquivo.
+   - **Tamanho real (mm)** — opcional. Modelos baixados da internet muitas vezes vêm em escala arbitrária (uma cadeira de 40 m, um vaso de 9 mm). Informe uma medida que você conhece (por exemplo, *Altura* = 750 para uma mesa) e o modelo é escalado por igual para bater com ela. Deixe vazio para usar a unidade do arquivo. Se a maior medida não combinar com a categoria escolhida (por exemplo, um móvel com mais de 6 m), a prévia avisa.
 4. Clique em **Analisar**. Aparecem a prévia 3D e a lista de peças e parâmetros.
 5. Clique em **Criar família**.
 

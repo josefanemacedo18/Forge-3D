@@ -219,3 +219,17 @@ def test_real_size_rescales_the_model(tmp_path, axis, size, idx):
     assert "escala ajustada" in spec["report"]["source"]["unitsReason"]
     assert not any("Unidade do arquivo estimada" in w for w in spec["report"]["warnings"])
     assert spec["family"]["achievedLevel"] == "C"
+
+
+def test_implausible_size_for_category_warns(tmp_path):
+    """Uma mesa de 12 m em Mobiliário quase sempre é escala errada: o usuário
+    é avisado e orientado a informar o tamanho real."""
+    big = [m.copy() for m in synth.table()]
+    for m in big:
+        m.apply_scale(10)
+    path = write(tmp_path, "mesa_gigante", big)
+    spec = convert_mesh_file(path, ConvertOptions(level="C", category="Furniture")).spec
+    assert any("Tamanho incomum para Mobiliário" in w for w in spec["report"]["warnings"])
+    spec = convert_mesh_file(path, ConvertOptions(level="C", category="Furniture", target_size=750)).spec
+    assert not any("Tamanho incomum" in w for w in spec["report"]["warnings"])
+    assert spec["envelope"]["height"] == pytest.approx(750, abs=0.01)

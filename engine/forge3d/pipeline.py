@@ -110,6 +110,32 @@ def _safe_range(spec: dict) -> dict[str, tuple[float, float | None]]:
 
 MAX_RELAX_ROUNDS = 4
 
+# Maior dimensão plausível (mm) por categoria: fora disso, a escala do arquivo
+# provavelmente está errada (comum em modelos baixados da internet).
+PLAUSIBLE_SIZE = {
+    "Furniture": ("Mobiliário", 50, 6000),
+    "FurnitureSystems": ("Sistemas de mobiliário", 100, 12000),
+    "Casework": ("Marcenaria", 100, 8000),
+    "LightingFixtures": ("Luminárias", 30, 15000),
+    "PlumbingFixtures": ("Peças hidrossanitárias", 50, 4000),
+    "ElectricalFixtures": ("Dispositivos elétricos", 20, 3000),
+    "FoodServiceEquipment": ("Equipamento de cozinha", 50, 6000),
+    "MedicalEquipment": ("Equipamento médico", 50, 6000),
+}
+
+
+def _size_warning(category: str, envelope: tuple[float, float, float], target_size: float | None) -> str | None:
+    """Aviso quando o tamanho não combina com a categoria escolhida."""
+    if target_size or category not in PLAUSIBLE_SIZE:
+        return None
+    label, lo, hi = PLAUSIBLE_SIZE[category]
+    size = max(envelope)
+    if lo <= size <= hi:
+        return None
+    shown = f"{size / 1000:.3g} m" if size >= 1000 else f"{size:.3g} mm"
+    return (f"Tamanho incomum para {label}: a maior medida ficou com {shown}. Se a escala estiver errada, "
+            "informe o Tamanho real de uma medida conhecida (ou troque a Unidade) e analise de novo.")
+
 
 def plan_robust(dec, plan_opts: PlanOptions, report: ProgressFn | None = None) -> dict:
     """Planeja e solta as restrições que não aguentam ±10% de flexão.
@@ -157,6 +183,8 @@ def convert_mesh_file(path: str, opts: ConvertOptions | None = None, progress: P
                                             max_freeform_faces=opts.max_freeform_faces,
                                             target_size=opts.target_size, target_axis=opts.target_axis),
                     progress=lambda f, m: report(0.05 + 0.75 * f, m), cancel=cancel)
+    if (w := _size_warning(opts.category, dec.envelope, opts.target_size)) is not None:
+        dec.warnings.append(w)
     report(0.82, "Planejando parâmetros")
     name = opts.family_name or sanitize_name(Path(path).stem.replace("_", " "), "Forge3D Familia", 80)
     spec = plan_robust(dec, PlanOptions(level=opts.level, family_name=name, category=opts.category,
